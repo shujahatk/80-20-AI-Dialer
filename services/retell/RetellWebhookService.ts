@@ -36,9 +36,10 @@ export class RetellWebhookService {
   }
 
   /**
-   * Verifies the cryptographic HMAC signature of incoming Retell webhooks (x-retell-signature using RETELL_WEBHOOK_SECRET or RETELL_API_KEY)
+   * Verifies the cryptographic signature of incoming Retell webhooks (x-retell-signature using RETELL_API_KEY).
+   * Prefers Retell's official Node SDK Retell.verify() implementation with timestamp and replay protection.
    */
-  verifySignature(rawBody: string, signatureHeader?: string | null): boolean {
+  async verifySignature(rawBody: string, signatureHeader?: string | null): Promise<boolean> {
     let secret = '';
     let apiKey = '';
     let isLive = false;
@@ -51,26 +52,21 @@ export class RetellWebhookService {
       return false;
     }
 
-    if ((!secret && !apiKey) || secret.includes('mock_retell') || secret === '<webhook_signing_secret>') {
-      // In dev/test without real webhook secret configured, allow mock-signature
-      if (!isLive && signatureHeader === 'mock-signature') return true;
-      // If API key is available, attempt verification using API key as signing secret
-      if (apiKey && !apiKey.includes('mock_retell') && signatureHeader) {
-        return RetellClient.verifyWebhookSignature(rawBody, apiKey, signatureHeader);
-      }
-      return !isLive && signatureHeader === 'mock-signature';
-    }
-
     if (!signatureHeader) return false;
 
-    // Check with RETELL_WEBHOOK_SECRET first
-    if (secret && RetellClient.verifyWebhookSignature(rawBody, secret, signatureHeader)) {
-      return true;
+    // In dev/test without real webhook secret configured, allow mock-signature
+    if (!isLive && signatureHeader === 'mock-signature') return true;
+
+    // Check with RETELL_API_KEY first (Retell signs webhooks with Webhook-badged API key)
+    if (apiKey) {
+      const valid = await RetellClient.verifyWebhookSignature(rawBody, apiKey, signatureHeader);
+      if (valid) return true;
     }
 
-    // Retell can also sign using RETELL_API_KEY
-    if (apiKey && RetellClient.verifyWebhookSignature(rawBody, apiKey, signatureHeader)) {
-      return true;
+    // Check with RETELL_WEBHOOK_SECRET if configured and different
+    if (secret && secret !== apiKey) {
+      const valid = await RetellClient.verifyWebhookSignature(rawBody, secret, signatureHeader);
+      if (valid) return true;
     }
 
     return false;
@@ -93,7 +89,7 @@ export class RetellWebhookService {
 
     // 1. Signature Verification (if raw body and signature header are provided)
     if (rawBody && signatureHeader !== undefined) {
-      const isValid = this.verifySignature(rawBody, signatureHeader);
+      const isValid = await this.verifySignature(rawBody, signatureHeader);
       if (!isValid) {
         return {
           success: false,

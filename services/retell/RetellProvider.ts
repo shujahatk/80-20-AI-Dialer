@@ -107,11 +107,11 @@ export class RetellProvider {
   /**
    * Verifies incoming webhook authenticity
    */
-  verifyWebhookSignature(
+  async verifyWebhookSignature(
     rawBody: string,
     apiKeyOrSecret: string,
     signatureHeader?: string | null
-  ): boolean {
+  ): Promise<boolean> {
     return RetellClient.verifyWebhookSignature(rawBody, apiKeyOrSecret, signatureHeader);
   }
 }

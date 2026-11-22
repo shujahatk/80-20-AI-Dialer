@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
     const supabase = createAdminClient();
     const webhookService = new RetellWebhookService(supabase);
 
-    if (!webhookService.verifySignature(rawBody, signature)) {
+    const isSignatureValid = await webhookService.verifySignature(rawBody, signature);
+    if (!isSignatureValid) {
       return NextResponse.json(
         { success: false, error: { message: 'Invalid webhook signature.' } },
         { status: 401 }

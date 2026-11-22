@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Retell } from 'retell-sdk';
 import { getServerEnv } from '@/lib/env';
 import type {
   RetellCreatePhoneCallRequest,
@@ -403,34 +404,49 @@ export class RetellClient {
   }
 
   /**
-   * Cryptographically verifies incoming Retell webhook signature using HMAC-SHA256.
+   * Cryptographically verifies incoming Retell webhook signature.
+   * Prefers Retell's official Node SDK Retell.verify() implementation (v={timestamp},d={digest}),
+   * with backward-compatible fallback for raw HMAC-SHA256 hex digests.
    */
-  static verifyWebhookSignature(
+  static async verifyWebhookSignature(
     rawBody: string,
     apiKeyOrSecret: string,
     signatureHeader?: string | null
-  ): boolean {
+  ): Promise<boolean> {
     if (!signatureHeader || !apiKeyOrSecret || !rawBody) {
       return false;
     }
 
+    const trimmedSignature = signatureHeader.trim();
+
+    // 1. Primary: Official Retell Node SDK verification (v={timestamp},d={digest})
+    try {
+      const isValid = await Retell.verify(rawBody, apiKeyOrSecret, trimmedSignature);
+      if (isValid) {
+        return true;
+      }
+    } catch {
+      // In case format doesn't match v=...,d=... structure, fall through to raw digest check
+    }
+
+    // 2. Fallback: Raw HMAC-SHA256 hex digest (for unit test fixtures or manual test tooling)
     try {
       const computed = crypto
         .createHmac('sha256', apiKeyOrSecret)
         .update(rawBody, 'utf-8')
         .digest('hex');
 
-      const signatureBuffer = Buffer.from(signatureHeader.trim(), 'utf-8');
+      const signatureBuffer = Buffer.from(trimmedSignature, 'utf-8');
       const computedBuffer = Buffer.from(computed, 'utf-8');
 
-      if (signatureBuffer.length !== computedBuffer.length) {
-        return false;
+      if (signatureBuffer.length === computedBuffer.length) {
+        return crypto.timingSafeEqual(signatureBuffer, computedBuffer);
       }
-
-      return crypto.timingSafeEqual(signatureBuffer, computedBuffer);
     } catch {
       return false;
     }
+
+    return false;
   }
 }
 

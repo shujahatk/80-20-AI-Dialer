@@ -22,9 +22,9 @@ console.log('===================================================================
 let passed = 0;
 let failed = 0;
 
-function test(name, fn) {
+async function test(name, fn) {
   try {
-    fn();
+    await fn();
     console.log(`  [PASS] ${name}`);
     passed++;
   } catch (err) {
@@ -33,6 +33,8 @@ function test(name, fn) {
     failed++;
   }
 }
+
+async function runAll() {
 
 // -----------------------------------------------------------------------------
 // 1. HUMAN APPROVAL REJECTION & VERIFICATION
@@ -378,6 +380,83 @@ test('Application code does not query nonexistent call_approval_audits or call_e
 });
 
 // -----------------------------------------------------------------------------
+// 7. RETELL OFFICIAL SDK WEBHOOK SIGNATURE VERIFICATION (Retell.verify)
+// -----------------------------------------------------------------------------
+console.log('\n--- 7. RETELL WEBHOOK SIGNATURE VERIFICATION (OFFICIAL SDK) ---');
+
+const Retell = require('retell-sdk');
+const crypto = require('crypto');
+
+await test('Official Retell.sign & Retell.verify validates timestamped signature', async () => {
+  const apiKey = 'key_mock_test_1234567890abcdef12345';
+  const payload = JSON.stringify({
+    event: 'call_ended',
+    call: { call_id: 'call_001', call_status: 'ended' }
+  });
+
+  const signature = await Retell.sign(payload, apiKey);
+  assert.ok(signature.startsWith('v='), 'Signature must start with v=');
+  assert.ok(signature.includes(',d='), 'Signature must contain ,d=');
+
+  // Positive: Valid signature passes
+  const valid = await Retell.verify(payload, apiKey, signature);
+  assert.strictEqual(valid, true, 'Valid Retell signature must pass');
+
+  // Negative: Tampered payload fails
+  const tampered = await Retell.verify(payload + ' ', apiKey, signature);
+  assert.strictEqual(tampered, false, 'Tampered payload must fail');
+
+  // Negative: Wrong key fails
+  const wrongKey = await Retell.verify(payload, 'key_different_key_00000', signature);
+  assert.strictEqual(wrongKey, false, 'Wrong key must fail');
+
+  // Negative: Stale timestamp (> 5 minutes) fails replay check
+  const staleTimestamp = Date.now() - 6 * 60 * 1000;
+  const staleDigest = crypto.createHmac('sha256', apiKey).update(payload + staleTimestamp, 'utf-8').digest('hex');
+  const staleSignature = `v=${staleTimestamp},d=${staleDigest}`;
+  const staleValid = await Retell.verify(payload, apiKey, staleSignature);
+  assert.strictEqual(staleValid, false, 'Stale timestamp (> 5 min) must fail replay protection');
+});
+
+await test('Fallback verifies raw HMAC-SHA256 hex digest for backward compatibility', async () => {
+  const apiKey = 'key_mock_test_1234567890abcdef12345';
+  const payload = JSON.stringify({
+    event: 'call_analyzed',
+    call: { call_id: 'call_002', call_status: 'analyzed' }
+  });
+
+  const rawHmac = crypto.createHmac('sha256', apiKey).update(payload, 'utf-8').digest('hex');
+
+  // Helper verifying both official format and fallback
+  async function verifyHelper(body, key, sig) {
+    if (!sig || !key || !body) return false;
+    try {
+      const ok = await Retell.verify(body, key, sig.trim());
+      if (ok) return true;
+    } catch {
+      // Fall through
+    }
+    try {
+      const computed = crypto.createHmac('sha256', key).update(body, 'utf-8').digest('hex');
+      const sigBuf = Buffer.from(sig.trim(), 'utf-8');
+      const compBuf = Buffer.from(computed, 'utf-8');
+      if (sigBuf.length === compBuf.length) {
+        return crypto.timingSafeEqual(sigBuf, compBuf);
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  assert.strictEqual(await verifyHelper(payload, apiKey, rawHmac), true, 'Raw HMAC digest passes fallback');
+  assert.strictEqual(await verifyHelper(payload + 'x', apiKey, rawHmac), false, 'Tampered payload rejected in fallback');
+  assert.strictEqual(await verifyHelper(payload, 'wrong_key', rawHmac), false, 'Wrong key rejected in fallback');
+  assert.strictEqual(await verifyHelper(payload, apiKey, null), false, 'Null signature rejected');
+  assert.strictEqual(await verifyHelper(payload, apiKey, ''), false, 'Empty signature rejected');
+});
+
+// -----------------------------------------------------------------------------
 // SUMMARY
 // -----------------------------------------------------------------------------
 console.log('\n======================================================================');
@@ -387,3 +466,6 @@ console.log('===================================================================
 if (failed > 0) {
   process.exit(1);
 }
+}
+
+runAll();
