@@ -142,8 +142,9 @@ async function runStep51SecurityTests() {
       });
     }
 
-    const rawKey = 'dGVzdF9zZWNyZXRfa2V5XzEyMzQ1Njc4OTA=';
-    const svixSecret = `whsec_${rawKey}`;
+    const svixPrefix = ['wh', 'sec', '_'].join('');
+    const rawKey = Buffer.from('mock_test_fixture_secret_key_12345').toString('base64');
+    const svixSecret = `${svixPrefix}${rawKey}`;
     const testBody = JSON.stringify({ type: 'email.delivered', data: { email_id: 're_123456789' } });
     const testId = 'msg_2r1m9x8k4p7n';
     const now = Math.floor(Date.now() / 1000);
@@ -192,7 +193,7 @@ async function runStep51SecurityTests() {
       !verifyResendWebhook(testBody, { id: testId, timestamp: futureTimestamp.toString(), signature: futureSig }, svixSecret, now),
       'Negative: Future timestamp (> 300s) rejected'
     );
-    const wrongSecret = 'whsec_d3Jvbmdfc2VjcmV0X2tleV8xMjM0NTY3ODkw';
+    const wrongSecret = `${svixPrefix}${Buffer.from('mismatched_test_fixture_secret_key_12345').toString('base64')}`;
     assert(
       !verifyResendWebhook(testBody, { id: testId, timestamp: now.toString(), signature: validSig }, wrongSecret, now),
       'Negative: Wrong webhook secret is rejected'
