@@ -261,36 +261,43 @@ export class RetellTelephonyService {
     }
 
     const env = getServerEnv();
-    const fromNumber = env.TWILIO_PHONE_NUMBER || '+18005550199';
+    const fromNumber = env.RETELL_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER || '+13027860788';
 
     // 4. Create RM Call Record with verified human approval evidence:
     const now = new Date().toISOString();
     const callRecord = await this.callsRepo.create({
       organization_id: organizationId,
       lead_id: leadId || null,
-      ai_agent_id: agent.id,
-      operator_id: operatorId,
+      agent_id: agent.id,
+      created_by: operatorId,
       provider: 'live',
       direction: 'outbound',
       status: 'registered',
       retell_call_id: null,
       approved_at: now,
       started_at: now,
-      recording_status: 'enabled',
-      transcript_status: 'pending',
-      provider_metadata: {
-        approval: {
-          approved_by: operatorId,
-          approved_at: now,
-          method: 'isolated_test_call',
-        },
-      } as unknown as any,
     });
 
     // Verify persisted human approval before provider dispatch
-    if (!callRecord.approved_at || !callRecord.operator_id) {
+    if (!callRecord.approved_at || (!callRecord.created_by && !(callRecord as any).operator_id)) {
       throw new Error('Retell dispatch blocked: call record lacks verified human approval.');
     }
+
+    // Record approval in public.audit_logs
+    await this.callsRepo.recordAuditLog({
+      organization_id: organizationId,
+      actor_id: operatorId,
+      action: 'call.approved',
+      entity: 'call_session',
+      entity_id: callRecord.id,
+      metadata: {
+        approval_method: 'isolated_test_call',
+        approved_by: operatorId,
+        approved_at: now,
+        destination_number: destinationE164,
+        lead_id: leadId || null,
+      } as any,
+    });
 
     // 5. Send Correlation Metadata to Retell (Step 11)
     try {

@@ -12,6 +12,7 @@ const suites = [
   { name: 'Step 5.1 Security & Production Readiness Suite', file: path.join(__dirname, 'test-step5-1-comprehensive.cjs') },
   { name: 'Step 6 Retell AI Voice Engine & Integration Suite', file: path.join(__dirname, 'test-step6-retell.cjs') },
   { name: 'Phase 1.1 Approval & CSV Import Integrity Suite', file: path.join(__dirname, 'test-phase1-1-integrity.cjs') },
+  { name: 'Supabase Schema Alignment & Call Workflow Suite', file: path.join(__dirname, 'test-schema-alignment.cjs') },
 ];
 
 let allPassed = true;

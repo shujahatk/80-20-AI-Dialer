@@ -110,44 +110,32 @@ export class CampaignsRepository {
   }
 
   async create(input: CampaignInsert): Promise<CampaignRow> {
-    const payload: CampaignInsert = {
+    const payload: Record<string, unknown> = {
       organization_id: input.organization_id,
       name: input.name,
       status: input.status ?? 'draft',
-      agent_id: input.agent_id ?? input.ai_agent_id ?? null,
-      ai_agent_id: input.ai_agent_id ?? input.agent_id ?? null,
+      agent_id: input.agent_id ?? (input as any).ai_agent_id ?? null,
       created_by: input.created_by ?? null,
       schedule_window:
         input.schedule_window ??
         JSON.stringify({
-          start: input.calling_window_start ?? '09:00',
-          end: input.calling_window_end ?? '17:00',
-          days: input.calling_days ?? [1, 2, 3, 4, 5],
-          timezone: input.timezone ?? 'UTC',
+          start: (input as any).calling_window_start ?? '09:00',
+          end: (input as any).calling_window_end ?? '17:00',
+          days: (input as any).calling_days ?? [1, 2, 3, 4, 5],
+          timezone: (input as any).timezone ?? 'UTC',
         }),
       retry_policy:
         input.retry_policy ??
         JSON.stringify({
-          maxAttempts: input.max_attempts_per_lead ?? 3,
-          retryDelayMinutes: input.retry_delay_minutes ?? 60,
-          concurrencyLimit: input.concurrency_limit ?? 10,
+          maxAttempts: (input as any).max_attempts_per_lead ?? 3,
+          retryDelayMinutes: (input as any).retry_delay_minutes ?? 60,
+          concurrencyLimit: (input as any).concurrency_limit ?? 10,
         }),
-      description: input.description,
-      timezone: input.timezone,
-      calling_days: input.calling_days,
-      start_date: input.start_date,
-      end_date: input.end_date,
-      calling_window_start: input.calling_window_start,
-      calling_window_end: input.calling_window_end,
-      max_attempts_per_lead: input.max_attempts_per_lead,
-      retry_delay_minutes: input.retry_delay_minutes,
-      concurrency_limit: input.concurrency_limit,
-      daily_attempt_limit: input.daily_attempt_limit,
     };
 
     const { data, error } = await this.supabase
       .from('campaigns')
-      .insert(payload)
+      .insert(payload as any)
       .select()
       .single();
     if (error) throw error;
@@ -155,15 +143,22 @@ export class CampaignsRepository {
   }
 
   async update(id: string, orgId: string, input: CampaignUpdate): Promise<CampaignRow> {
-    const payload: CampaignUpdate = {
-      ...input,
+    const payload: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
-    if (input.ai_agent_id && !input.agent_id) payload.agent_id = input.ai_agent_id;
+    if (input.name !== undefined) payload.name = input.name;
+    if (input.status !== undefined) payload.status = input.status;
+    if (input.agent_id !== undefined) payload.agent_id = input.agent_id;
+    if ((input as any).ai_agent_id !== undefined && payload.agent_id === undefined) {
+      payload.agent_id = (input as any).ai_agent_id;
+    }
+    if (input.created_by !== undefined) payload.created_by = input.created_by;
+    if (input.schedule_window !== undefined) payload.schedule_window = input.schedule_window;
+    if (input.retry_policy !== undefined) payload.retry_policy = input.retry_policy;
 
     const { data, error } = await this.supabase
       .from('campaigns')
-      .update(payload)
+      .update(payload as any)
       .eq('id', id)
       .eq('organization_id', orgId)
       .select()
@@ -360,7 +355,7 @@ export class CampaignsRepository {
 
     const { data: lead, error: leadError } = await this.supabase
       .from('leads')
-      .select('id, phone, name, company, title, metadata')
+      .select('id, phone, name, company, title, notes')
       .eq('id', nextCandidate.lead_id)
       .single();
 
@@ -379,7 +374,7 @@ export class CampaignsRepository {
       lastName,
       companyName: lead.company,
       jobTitle: lead.title,
-      customFields: (lead.metadata as Record<string, unknown>) ?? {},
+      customFields: {},
       attempts: 0,
     };
   }

@@ -210,7 +210,7 @@ export class CampaignRetellDispatcher {
     }
 
     const destinationE164 = phoneNorm.e164;
-    const fromNumber = env.TWILIO_PHONE_NUMBER || '+18005550199';
+    const fromNumber = env.RETELL_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER || '+13027860788';
 
     // 8. Handle SHADOW MODE (Evaluation & Assembly without placing actual calls)
     if (mode === 'shadow') {
@@ -298,31 +298,39 @@ export class CampaignRetellDispatcher {
         organization_id: organizationId,
         campaign_id: campaign.id,
         lead_id: candidate.leadId,
-        ai_agent_id: agent.id,
-        operator_id: effectiveOperatorId,
+        agent_id: agent.id,
+        created_by: effectiveOperatorId,
         provider: 'live',
         direction: 'outbound',
         status: 'registered',
         retell_call_id: null,
         approved_at: now,
         started_at: now,
-        recording_status: 'enabled',
-        transcript_status: 'pending',
-        provider_metadata: {
-          approval: {
-            approved_by: effectiveOperatorId,
-            approved_at: now,
-            method: 'campaign_human_operator_dispatch',
-          },
-        } as unknown as any,
       });
 
       // Step B: Verify persisted human approval before provider dispatch
-      if (!rmCall.approved_at || !rmCall.operator_id) {
+      if (!rmCall.approved_at || (!rmCall.created_by && !(rmCall as any).operator_id)) {
         throw new Error('Retell dispatch blocked: call record lacks verified human approval.');
       }
 
-      // Step C: Dispatch Call to Retell
+      // Step C: Record immutable human approval in public.audit_logs
+      await this.callsRepo.recordAuditLog({
+        organization_id: organizationId,
+        actor_id: effectiveOperatorId,
+        action: 'call.approved',
+        entity: 'call_session',
+        entity_id: rmCall.id,
+        metadata: {
+          approval_method: 'campaign_human_operator_dispatch',
+          approved_by: effectiveOperatorId,
+          approved_at: now,
+          lead_id: candidate.leadId,
+          campaign_id: campaign.id,
+          destination_number: destinationE164,
+        } as any,
+      });
+
+      // Step D: Dispatch Call to Retell
       const startResult = await this.callService.startOutboundCall({
         fromNumber,
         toNumber: destinationE164,

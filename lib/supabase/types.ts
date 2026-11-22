@@ -1232,7 +1232,7 @@ export interface Database {
           organization_id?: string;
           call_session_id?: string;
           body?: string;
-          call_id: string;
+          call_id?: string;
           speaker?: string;
           sequence_number?: number;
           text?: string;
@@ -1247,7 +1247,7 @@ export interface Database {
           organization_id?: string;
           call_session_id?: string;
           body?: string;
-          call_id: string;
+          call_id?: string;
           speaker?: string;
           sequence_number?: number;
           text?: string;
@@ -1281,7 +1281,7 @@ export interface Database {
           call_session_id?: string;
           storage_path?: string;
           external_url?: string | null;
-          call_id: string;
+          call_id?: string;
           provider?: string;
           provider_recording_id?: string | null;
           duration_seconds?: number;
@@ -1295,7 +1295,7 @@ export interface Database {
           call_session_id?: string;
           storage_path?: string;
           external_url?: string | null;
-          call_id: string;
+          call_id?: string;
           provider?: string;
           provider_recording_id?: string | null;
           duration_seconds?: number;
@@ -1578,9 +1578,11 @@ export interface Database {
         Row: {
           id: string;
           organization_id: string;
-          actor_user_id: string | null;
+          actor_id: string | null;
+          actor_user_id?: string | null;
           action: string;
-          entity_type: string;
+          entity?: string;
+          entity_type?: string;
           entity_id: string | null;
           metadata: Json;
           created_at: string;
@@ -1588,9 +1590,11 @@ export interface Database {
         Insert: {
           id?: string;
           organization_id: string;
+          actor_id?: string | null;
           actor_user_id?: string | null;
           action: string;
-          entity_type: string;
+          entity?: string;
+          entity_type?: string;
           entity_id?: string | null;
           metadata?: Json;
           created_at?: string;
@@ -1598,8 +1602,10 @@ export interface Database {
         Update: {
           id?: string;
           organization_id?: string;
+          actor_id?: string | null;
           actor_user_id?: string | null;
           action?: string;
+          entity?: string;
           entity_type?: string;
           entity_id?: string | null;
           metadata?: Json;

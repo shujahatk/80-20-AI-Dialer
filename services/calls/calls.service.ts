@@ -1,4 +1,4 @@
-import { CallsRepository, type CallRow, type CallEventRow, type CallRecordingRow } from '@/repositories/calls.repository';
+import { CallsRepository, type CallRow, type CallRecordingRow } from '@/repositories/calls.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
 import { CampaignsRepository } from '@/repositories/campaigns.repository';
 import { AgentsRepository } from '@/repositories/agents.repository';
@@ -15,7 +15,7 @@ import {
   twilioStatusToEventType,
 } from '@/services/telephony/call-events';
 import { normalizePhone } from '@/lib/telephony/phone';
-import { getClientEnv, getServerEnv } from '@/lib/env';
+import { getClientEnv, getServerEnv, getCanaryAllowlist } from '@/lib/env';
 import type { CallState, TwilioStatusCallbackPayload, TwilioRecordingCallbackPayload } from '@/services/telephony/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json, CallStatusDb } from '@/lib/supabase/types';
@@ -87,7 +87,7 @@ export class CallsService {
 
     // Genuine Human Approval Enforcement:
     // Outbound calls cannot be initiated without verified authorization from an authenticated human operator.
-    if (!params.operatorId) {
+    if (!params.operatorId || typeof params.operatorId !== 'string' || !params.operatorId.trim()) {
       throw new Error('Human operator authorization required: outbound call cannot be initiated without verified human approval.');
     }
 
@@ -97,42 +97,64 @@ export class CallsService {
     const isAiCall = Boolean(params.aiAgentId);
     const provider = isAiCall ? 'retell' : 'twilio';
 
-    // 2. Create local Call record in DB with verified human approval evidence:
-    // provider = 'live', status = 'registered', retell_call_id = null, approved_at populated
+    // 2. Canary Allowlist Validation BEFORE Retell dispatch
+    const env = getServerEnv();
+    if (env.RETELL_CAMPAIGN_MODE === 'canary' && isAiCall) {
+      const allowlist = getCanaryAllowlist();
+      const isAllowed =
+        allowlist.includes(phoneNorm.e164) ||
+        allowlist.includes(lead.id) ||
+        (lead.phone && allowlist.includes(lead.phone));
+      if (!isAllowed) {
+        throw new Error(`Canary mode active: destination number '${phoneNorm.e164}' is not on the canary allowlist.`);
+      }
+    }
+
+    // 3. Create Call record in DB with verified human approval evidence.
+    // Database write happens BEFORE provider dispatch; failed DB writes strictly abort Retell initiation.
     const now = new Date().toISOString();
     const callRecord = await this.repo.create({
       organization_id: orgId,
       lead_id: lead.id,
       campaign_id: params.campaignId || null,
-      ai_agent_id: params.aiAgentId || null,
-      operator_id: params.operatorId,
+      agent_id: params.aiAgentId || null,
+      created_by: params.operatorId,
       provider: 'live',
       direction: 'outbound',
       status: 'registered',
       retell_call_id: null,
       approved_at: now,
       started_at: now,
-      recording_status: params.recordCall ? 'enabled' : 'disabled',
-      transcript_status: 'pending',
-      provider_metadata: {
-        approval: {
-          approved_by: params.operatorId,
-          approved_at: now,
-          method: isAiCall ? 'manual_operator_ai_dispatch' : 'manual_operator_direct_dial',
-        },
-      } as Json,
     });
 
     let retellCallId: string | null = null;
 
-    // 3. If Retell AI call, verify persisted human approval before dispatching to Retell
+    // 4. Verify persisted approval from the created record
+    if (!callRecord.approved_at || (!callRecord.created_by && !(callRecord as any).operator_id)) {
+      throw new Error('Retell dispatch blocked: call record lacks verified human approval.');
+    }
+
+    // 5. Record human approval in public.audit_logs
+    await this.repo.recordAuditLog({
+      organization_id: orgId,
+      actor_id: params.operatorId,
+      action: 'call.approved',
+      entity: 'call_session',
+      entity_id: callRecord.id,
+      metadata: {
+        approval_method: isAiCall ? 'manual_operator_ai_dispatch' : 'manual_operator_direct_dial',
+        approved_by: params.operatorId,
+        approved_at: now,
+        lead_id: lead.id,
+        destination_number: phoneNorm.e164,
+        campaign_id: params.campaignId || null,
+      } as Json,
+    });
+
+    // 6. If Retell AI call, verify persisted human approval before dispatching to Retell
     if (isAiCall && params.aiAgentId) {
-      if (!callRecord.approved_at || !callRecord.operator_id) {
-        throw new Error('Retell dispatch blocked: call record lacks verified human approval.');
-      }
       try {
-        const env = getServerEnv();
-        const fromNumber = env.TWILIO_PHONE_NUMBER || env.RETELL_PHONE_NUMBER || '+18005550199';
+        const fromNumber = env.RETELL_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER || '+13027860788';
 
         let retellAgentId = params.aiAgentId;
         let agentVersionId: string | null = null;
@@ -161,7 +183,6 @@ export class CallsService {
         if (dispatchResult.success && dispatchResult.providerCallId) {
           retellCallId = dispatchResult.providerCallId;
           await this.repo.update(callRecord.id, orgId, {
-            provider_call_id: retellCallId,
             retell_call_id: retellCallId,
             status: 'queued',
           });
@@ -184,7 +205,7 @@ export class CallsService {
       }
     }
 
-    // 4. Log call_created event
+    // 7. Log call_created event to public.audit_logs
     await this.repo.logEvent({
       organization_id: orgId,
       call_id: callRecord.id,
@@ -195,6 +216,7 @@ export class CallsService {
         campaignId: params.campaignId,
         provider,
         retellCallId,
+        approvedBy: params.operatorId,
       } as unknown as Json,
       occurred_at: now,
     });
@@ -219,7 +241,7 @@ export class CallsService {
 
     // Genuine Human Approval Enforcement:
     // Outbound queue calls cannot be prepared without an authenticated human operator claiming the call.
-    if (!params.operatorId) {
+    if (!params.operatorId || typeof params.operatorId !== 'string' || !params.operatorId.trim()) {
       throw new Error('Human operator authorization required: queue call cannot be prepared without verified human approval.');
     }
 
@@ -244,25 +266,33 @@ export class CallsService {
         organization_id: orgId,
         campaign_id: params.campaignId,
         lead_id: lead.id,
-        operator_id: params.operatorId,
+        created_by: params.operatorId,
         provider: 'live',
         direction: 'outbound',
         status: 'registered',
         retell_call_id: null,
         approved_at: now,
         started_at: now,
-        recording_status: 'enabled',
-        transcript_status: 'pending',
-        provider_metadata: {
-          approval: {
-            approved_by: params.operatorId,
-            approved_at: now,
-            method: 'queue_operator_claim',
-          },
+      });
+
+      // 4. Record human approval in public.audit_logs
+      await this.repo.recordAuditLog({
+        organization_id: orgId,
+        actor_id: params.operatorId,
+        action: 'call.approved',
+        entity: 'call_session',
+        entity_id: callRecord.id,
+        metadata: {
+          approval_method: 'queue_operator_claim',
+          approved_by: params.operatorId,
+          approved_at: now,
+          destination_number: phoneNorm.e164,
+          lead_id: lead.id,
+          campaign_id: params.campaignId,
         } as Json,
       });
 
-      // 4. Log call_created event
+      // 5. Log call_created event to public.audit_logs
       await this.repo.logEvent({
         organization_id: orgId,
         call_id: callRecord.id,

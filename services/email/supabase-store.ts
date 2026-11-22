@@ -378,12 +378,13 @@ export class SupabaseEmailStore {
     if (result.error) throw new Error(`Email audit: ${result.error.message}`);
     if (entry.callId) {
       await db()
-        .from('call_events')
+        .from('audit_logs')
         .insert({
           organization_id: entry.organizationId,
-          call_id: entry.callId,
-          event_type: entry.action,
-          payload: entry.detail,
+          action: `call.${entry.action}`,
+          entity: 'call_session',
+          entity_id: entry.callId,
+          metadata: entry.detail as any,
         })
         .select('id')
         .maybeSingle();
@@ -560,7 +561,7 @@ export class SupabaseEmailStore {
             .eq('id', call.campaign_id)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
-      db().from('call_events').select('event_type').eq('call_id', callId),
+      db().from('audit_logs').select('action').eq('entity', 'call_session').eq('entity_id', callId),
     ]);
     const transcript: TranscriptTurn[] = rows<Record<string, unknown>>(transcriptResult, 'Transcript')
       .map((row) => {
@@ -572,7 +573,7 @@ export class SupabaseEmailStore {
     const leadRow = one<Record<string, unknown>>(leadResult, 'Lead');
     const campaignRow = one<Record<string, unknown>>(campaignResult, 'Campaign');
     const analyzed =
-      analyzedHint || rows<Record<string, unknown>>(eventResult, 'Call events').some((row) => row.event_type === 'call_analysis_ready');
+      analyzedHint || rows<Record<string, unknown>>(eventResult, 'Call events').some((row) => row.action === 'call.call_analysis_ready' || row.action === 'call_analysis_ready');
     const [firstName = '', ...nameRest] = (leadRow?.name ? String(leadRow.name) : '').split(' ');
     const lastName = nameRest.join(' ');
     const leadMeta = (leadRow?.metadata as Record<string, unknown>) ?? {};

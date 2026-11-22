@@ -15,6 +15,7 @@ export interface RetellMetadata {
   agentId?: string | null;
   agentVersionId?: string | null;
   rmCallId?: string | null;
+  operatorId?: string | null;
   [key: string]: unknown;
 }
 

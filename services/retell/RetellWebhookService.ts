@@ -111,15 +111,15 @@ export class RetellWebhookService {
 
     // 3. Idempotent Ingestion Check
     const { isDuplicate, event: webhookRecord } = await this.callsRepo.recordWebhookEvent({
-      provider: 'retell',
-      external_event_id: externalEventId,
+      source: 'retell',
+      external_id: externalEventId,
       event_type: event,
       payload: payload as unknown as Json,
-      signature_valid: true,
-      processing_status: 'received',
+      organization_id: metadata.organizationId || null,
+      received_at: new Date().toISOString(),
     });
 
-    if (isDuplicate && webhookRecord.processing_status === 'processed') {
+    if (isDuplicate) {
       return {
         success: true,
         isDuplicate: true,
@@ -150,22 +150,25 @@ export class RetellWebhookService {
       let callId = rmCall?.id || metadata.rmCallId;
 
       // If call record does not exist yet and organizationId is known, initialize call record
+      // Outbound calls require explicit human approval; never manufacture approved_at if operator is unattributed.
       if (!rmCall && organizationId) {
-        const mapped = RetellMapper.mapRetellCallToRMCallFields(call);
+        const approvedAt = metadata.operatorId
+          ? (call.start_timestamp ? new Date(call.start_timestamp).toISOString() : new Date().toISOString())
+          : null;
+
         rmCall = await this.callsRepo.create({
           id: metadata.rmCallId || undefined,
           organization_id: organizationId,
           campaign_id: metadata.campaignId || null,
           lead_id: metadata.leadId || null,
-          ai_agent_id: metadata.agentId || null,
+          agent_id: metadata.agentId || null,
+          created_by: (metadata.operatorId as string) || null,
           provider: 'live',
-          provider_call_id: retellCallId,
           retell_call_id: retellCallId,
           direction: 'outbound',
-          status: mapped.status,
-          approved_at: mapped.started_at || new Date().toISOString(),
-          started_at: mapped.started_at || new Date().toISOString(),
-          provider_metadata: mapped.provider_metadata as Json,
+          status: 'registered',
+          approved_at: approvedAt,
+          started_at: call.start_timestamp ? new Date(call.start_timestamp).toISOString() : new Date().toISOString(),
         });
         callId = rmCall.id;
       }
@@ -174,13 +177,10 @@ export class RetellWebhookService {
       switch (event) {
         case 'call_started': {
           if (callId && organizationId) {
-            const mappedFields = RetellMapper.mapRetellCallToRMCallFields(call);
             await this.callsRepo.update(callId, organizationId, {
               status: 'in_progress',
-              provider_call_id: retellCallId,
               retell_call_id: retellCallId,
-              started_at: mappedFields.started_at || new Date().toISOString(),
-              provider_metadata: mappedFields.provider_metadata as Json,
+              started_at: call.start_timestamp ? new Date(call.start_timestamp).toISOString() : new Date().toISOString(),
             });
 
             await this.callsRepo.logEvent({
@@ -201,31 +201,22 @@ export class RetellWebhookService {
         case 'call_ended': {
           if (callId && organizationId) {
             const mappedFields = RetellMapper.mapRetellCallToRMCallFields(call);
+            const durationSec = call.duration_ms ? Math.round(call.duration_ms / 1000) : (mappedFields.duration_seconds ?? null);
+
             await this.callsRepo.update(callId, organizationId, {
               status: mappedFields.status,
-              ended_at: mappedFields.ended_at || new Date().toISOString(),
-              duration_seconds: mappedFields.duration_seconds,
-              connected_seconds: mappedFields.connected_seconds,
-              disconnection_reason: mappedFields.disconnection_reason,
-              call_cost: mappedFields.call_cost,
-              recording_status: mappedFields.recording_status as 'none' | 'recording' | 'processing' | 'ready' | 'failed',
-              transcript_status: mappedFields.transcript_status as 'none' | 'streaming' | 'completed' | 'failed',
-              provider_metadata: mappedFields.provider_metadata as Json,
+              ended_at: call.end_timestamp ? new Date(call.end_timestamp).toISOString() : new Date().toISOString(),
+              duration_seconds: durationSec,
+              disconnection_reason: call.disconnection_reason || null,
             });
 
-            // If recording URL is available, save recording entry
+            // If recording URL is available, save recording entry matching remote schema
             if (call.recording_url) {
               await this.callsRepo.saveRecording({
                 organization_id: organizationId,
                 call_session_id: callId,
-                call_id: callId,
-                provider: 'retell',
-                provider_recording_id: retellCallId,
                 storage_path: call.recording_url,
                 external_url: call.recording_url,
-                duration_seconds: mappedFields.duration_seconds,
-                mime_type: 'audio/mp3',
-                status: 'ready',
               });
             }
 
@@ -236,26 +227,14 @@ export class RetellWebhookService {
                 await this.callsRepo.saveTranscriptSegment({
                   organization_id: organizationId,
                   call_session_id: callId,
-                  call_id: callId,
-                  speaker: t.speaker,
-                  sequence_number: t.sequenceNumber,
-                  text: t.text,
                   body: `${t.speaker}: ${t.text}`,
-                  started_at_ms: t.startedAtMs,
-                  ended_at_ms: t.endedAtMs,
-                  confidence: t.confidence,
-                  metadata: (t.metadata || {}) as Json,
                 });
               }
             } else if (call.transcript) {
               await this.callsRepo.saveTranscriptSegment({
                 organization_id: organizationId,
                 call_session_id: callId,
-                call_id: callId,
                 body: call.transcript,
-                text: call.transcript,
-                speaker: 'system',
-                sequence_number: 0,
               });
             }
 
@@ -293,12 +272,7 @@ export class RetellWebhookService {
           if (callId && organizationId) {
             const analysis = RetellMapper.mapRetellAnalysisToRM(call.call_analysis);
 
-            await this.callsRepo.update(callId, organizationId, {
-              outcome: analysis.callOutcome || analysis.summary,
-              sentiment_score: analysis.sentimentScore,
-            });
-
-            // Persist call outcome entry
+            // Persist call outcome entry to verified call_outcomes table
             await this.callsRepo.recordOutcome({
               call_session_id: callId,
               organization_id: organizationId,

@@ -1,12 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database, WebhookStatusDb, CallStatusDb } from '@/lib/supabase/types';
+import type { Database, WebhookStatusDb, CallStatusDb, Json } from '@/lib/supabase/types';
 
 export type CallRow = Database['public']['Tables']['call_sessions']['Row'];
 export type CallInsert = Database['public']['Tables']['call_sessions']['Insert'];
 export type CallUpdate = Database['public']['Tables']['call_sessions']['Update'];
 
-export type CallEventRow = Database['public']['Tables']['call_events']['Row'];
-export type CallEventInsert = Database['public']['Tables']['call_events']['Insert'];
+export type AuditLogRow = Database['public']['Tables']['audit_logs']['Row'];
+export type AuditLogInsert = Database['public']['Tables']['audit_logs']['Insert'];
 
 export type CallRecordingRow = Database['public']['Tables']['call_recordings']['Row'];
 export type CallRecordingInsert = Database['public']['Tables']['call_recordings']['Insert'];
@@ -26,22 +26,66 @@ export interface ListCallsOptions {
 }
 
 export class CallsRepository {
-  constructor(private readonly supabase: SupabaseClient<Database>) { }
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
 
+  /**
+   * Helper to enrich a raw call_sessions row with backward-compatible aliases
+   */
+  private enrichCallRow(row: any): CallRow {
+    if (!row) return row;
+    return {
+      ...row,
+      operator_id: row.created_by ?? row.operator_id ?? null,
+      ai_agent_id: row.agent_id ?? row.ai_agent_id ?? null,
+      provider_call_id: row.retell_call_id ?? row.provider_call_id ?? null,
+    } as CallRow;
+  }
+
+  /**
+   * Creates a call session in public.call_sessions using ONLY verified remote columns.
+   * Unsupported fields (such as operator_id, provider_metadata, recording_status) are excluded
+   * or mapped to verified remote columns (created_by, agent_id, retell_call_id).
+   */
   async create(input: CallInsert): Promise<CallRow> {
-    const payload: CallInsert = {
-      ...input,
-      created_by: input.created_by ?? input.operator_id ?? null,
-      agent_id: input.agent_id ?? input.ai_agent_id ?? null,
-      retell_call_id: input.retell_call_id ?? input.provider_call_id ?? null,
+    const createdBy = input.created_by ?? (input as any).operator_id ?? null;
+    const agentId = input.agent_id ?? (input as any).ai_agent_id ?? null;
+    const retellCallId = input.retell_call_id ?? (input as any).provider_call_id ?? null;
+    const now = new Date().toISOString();
+
+    // Strict remote schema projection: public.call_sessions columns only
+    const payload: Record<string, unknown> = {
+      organization_id: input.organization_id,
+      lead_id: input.lead_id ?? null,
+      campaign_id: input.campaign_id ?? null,
+      agent_id: agentId,
+      created_by: createdBy,
+      status: input.status,
+      started_at: input.started_at ?? now,
+      ended_at: input.ended_at ?? null,
+      duration_seconds: input.duration_seconds ?? null,
+      direction: input.direction,
+      from_number: input.from_number ?? null,
+      to_number: input.to_number ?? null,
+      retell_call_id: retellCallId,
+      failure_reason: input.failure_reason ?? null,
+      disconnection_reason: input.disconnection_reason ?? null,
+      approved_at: input.approved_at ?? null,
+      idempotency_key: input.idempotency_key ?? null,
+      provider: input.provider || 'live',
     };
+
+    if (input.id) {
+      payload.id = input.id;
+    }
+
     const { data, error } = await this.supabase
       .from('call_sessions')
-      .insert(payload)
+      .insert(payload as any)
       .select()
       .single();
+
     if (error) throw error;
-    return data as CallRow;
+    return this.enrichCallRow(data);
   }
 
   async getById(id: string, orgId?: string): Promise<CallRow | null> {
@@ -51,17 +95,17 @@ export class CallsRepository {
     }
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return (data as CallRow | null) ?? null;
+    return data ? this.enrichCallRow(data) : null;
   }
 
   async getByProviderCallId(providerCallId: string): Promise<CallRow | null> {
     const { data, error } = await this.supabase
       .from('call_sessions')
       .select('*')
-      .or(`retell_call_id.eq.${providerCallId},provider_call_id.eq.${providerCallId}`)
+      .eq('retell_call_id', providerCallId)
       .maybeSingle();
     if (error) throw error;
-    return (data as CallRow | null) ?? null;
+    return data ? this.enrichCallRow(data) : null;
   }
 
   async getByRetellCallId(retellCallId: string): Promise<CallRow | null> {
@@ -71,7 +115,7 @@ export class CallsRepository {
       .eq('retell_call_id', retellCallId)
       .maybeSingle();
     if (error) throw error;
-    return (data as CallRow | null) ?? null;
+    return data ? this.enrichCallRow(data) : null;
   }
 
   async getActiveCallForLead(leadId: string, orgId: string): Promise<CallRow | null> {
@@ -83,17 +127,48 @@ export class CallsRepository {
       .in('status', ['queued', 'ringing', 'in_progress'])
       .maybeSingle();
     if (error) throw error;
-    return (data as CallRow | null) ?? null;
+    return data ? this.enrichCallRow(data) : null;
   }
 
+  /**
+   * Updates an existing call session in public.call_sessions.
+   * Excludes updated_at and unmapped columns not present in the remote schema.
+   */
   async update(id: string, orgId?: string, input?: CallUpdate): Promise<CallRow> {
-    const payload = input ?? {};
+    const payload: Record<string, unknown> = {};
+
+    if (input) {
+      if (input.status !== undefined) payload.status = input.status;
+      if (input.started_at !== undefined) payload.started_at = input.started_at;
+      if (input.ended_at !== undefined) payload.ended_at = input.ended_at;
+      if (input.duration_seconds !== undefined) payload.duration_seconds = input.duration_seconds;
+      if (input.retell_call_id !== undefined) payload.retell_call_id = input.retell_call_id;
+      if ((input as any).provider_call_id !== undefined && payload.retell_call_id === undefined) {
+        payload.retell_call_id = (input as any).provider_call_id;
+      }
+      if (input.failure_reason !== undefined) payload.failure_reason = input.failure_reason;
+      if (input.disconnection_reason !== undefined) payload.disconnection_reason = input.disconnection_reason;
+      if (input.approved_at !== undefined) payload.approved_at = input.approved_at;
+      if (input.from_number !== undefined) payload.from_number = input.from_number;
+      if (input.to_number !== undefined) payload.to_number = input.to_number;
+      if (input.agent_id !== undefined) payload.agent_id = input.agent_id;
+      if ((input as any).ai_agent_id !== undefined && payload.agent_id === undefined) {
+        payload.agent_id = (input as any).ai_agent_id;
+      }
+      if (input.created_by !== undefined) payload.created_by = input.created_by;
+      if ((input as any).operator_id !== undefined && payload.created_by === undefined) {
+        payload.created_by = (input as any).operator_id;
+      }
+      if (input.lead_id !== undefined) payload.lead_id = input.lead_id;
+      if (input.campaign_id !== undefined) payload.campaign_id = input.campaign_id;
+      if (input.direction !== undefined) payload.direction = input.direction;
+      if (input.provider !== undefined) payload.provider = input.provider;
+      if (input.idempotency_key !== undefined) payload.idempotency_key = input.idempotency_key;
+    }
+
     let query = this.supabase
       .from('call_sessions')
-      .update({
-        ...payload,
-        updated_at: new Date().toISOString(),
-      })
+      .update(payload as any)
       .eq('id', id);
 
     if (orgId) {
@@ -102,7 +177,7 @@ export class CallsRepository {
 
     const { data, error } = await query.select().single();
     if (error) throw error;
-    return data as CallRow;
+    return this.enrichCallRow(data);
   }
 
   async list(
@@ -137,53 +212,129 @@ export class CallsRepository {
     if (error) throw error;
 
     return {
-      calls: (data as CallRow[]) ?? [],
+      calls: (data ?? []).map((row) => this.enrichCallRow(row)),
       totalCount: count ?? 0,
     };
   }
 
-  async logEvent(input: CallEventInsert): Promise<CallEventRow> {
+  /**
+   * Records an immutable entry in public.audit_logs for call operations.
+   * This uses the verified remote audit_logs table schema.
+   */
+  async recordAuditLog(input: {
+    organization_id: string;
+    actor_id?: string | null;
+    action: string;
+    entity: string;
+    entity_id?: string | null;
+    metadata: Json;
+  }): Promise<AuditLogRow> {
     const { data, error } = await this.supabase
-      .from('call_events')
-      .insert(input)
+      .from('audit_logs')
+      .insert({
+        organization_id: input.organization_id,
+        actor_id: input.actor_id || null,
+        action: input.action,
+        entity: input.entity,
+        entity_id: input.entity_id || null,
+        metadata: input.metadata ?? {},
+      })
       .select()
       .single();
+
     if (error) throw error;
-    return data as CallEventRow;
+    return data as AuditLogRow;
   }
 
-  async getEvents(callId: string): Promise<CallEventRow[]> {
+  /**
+   * Compatibility wrapper that writes call events to the verified public.audit_logs table.
+   */
+  async logEvent(input: {
+    organization_id: string;
+    call_id: string;
+    event_type: string;
+    payload?: Json;
+    occurred_at?: string;
+    provider_event_id?: string;
+  }): Promise<AuditLogRow> {
+    const now = input.occurred_at || new Date().toISOString();
+    const actorId =
+      (input.payload as any)?.approvedBy ||
+      (input.payload as any)?.operatorId ||
+      null;
+
+    return this.recordAuditLog({
+      organization_id: input.organization_id,
+      actor_id: actorId,
+      action: `call.${input.event_type}`,
+      entity: 'call_session',
+      entity_id: input.call_id,
+      metadata: {
+        event_type: input.event_type,
+        occurred_at: now,
+        provider_event_id: input.provider_event_id || null,
+        ...(typeof input.payload === 'object' && input.payload !== null ? (input.payload as object) : {}),
+      } as Json,
+    });
+  }
+
+  /**
+   * Retrieves call event history from public.audit_logs
+   */
+  async getEvents(callId: string): Promise<Array<{
+    id: string;
+    organization_id: string;
+    call_id: string;
+    event_type: string;
+    payload: Json;
+    created_at: string;
+  }>> {
     const { data, error } = await this.supabase
-      .from('call_events')
+      .from('audit_logs')
       .select('*')
-      .eq('call_id', callId)
+      .eq('entity', 'call_session')
+      .eq('entity_id', callId)
       .order('created_at', { ascending: true });
+
     if (error) throw error;
-    return (data as CallEventRow[]) ?? [];
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      organization_id: row.organization_id,
+      call_id: row.entity_id || callId,
+      event_type: row.action.replace(/^call\./, ''),
+      payload: row.metadata,
+      created_at: row.created_at,
+    }));
   }
 
+  /**
+   * Saves a recording entry in public.call_recordings matching remote schema.
+   */
   async saveRecording(input: CallRecordingInsert): Promise<CallRecordingRow> {
-    const callSessionId = input.call_session_id || input.call_id;
+    const callSessionId = input.call_session_id || (input as any).call_id;
     let orgId = input.organization_id;
-    if (!orgId) {
+    if (!orgId && callSessionId) {
       const call = await this.getById(callSessionId);
       orgId = call?.organization_id;
     }
 
-    const payload: CallRecordingInsert = {
-      ...input,
-      organization_id: orgId || undefined,
+    if (!orgId || !callSessionId) {
+      throw new Error('Call recording requires organization_id and call_session_id');
+    }
+
+    const payload = {
+      organization_id: orgId,
       call_session_id: callSessionId,
-      call_id: callSessionId,
-      storage_path: input.storage_path,
-      external_url: input.external_url || input.storage_path,
+      storage_path: input.storage_path || null,
+      external_url: input.external_url || input.storage_path || null,
     };
 
     const { data, error } = await this.supabase
       .from('call_recordings')
-      .insert(payload)
+      .insert(payload as any)
       .select()
       .single();
+
     if (error) throw error;
     return data as CallRecordingRow;
   }
@@ -192,51 +343,48 @@ export class CallsRepository {
     const { data, error } = await this.supabase
       .from('call_recordings')
       .select('*')
-      .or(`call_id.eq.${callId},call_session_id.eq.${callId}`)
+      .eq('call_session_id', callId)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (error) {
-      // Fallback
-      const { data: fallback } = await this.supabase
-        .from('call_recordings')
-        .select('*')
-        .eq('call_session_id', callId)
-        .limit(1)
-        .maybeSingle();
-      return (fallback as CallRecordingRow | null) ?? null;
-    }
+
+    if (error) return null;
     return (data as CallRecordingRow | null) ?? null;
   }
 
+  /**
+   * Saves a transcript segment in public.call_transcripts matching remote schema.
+   */
   async saveTranscriptSegment(input: CallTranscriptInsert): Promise<CallTranscriptRow> {
-    const callSessionId = input.call_session_id || input.call_id;
+    const callSessionId = input.call_session_id || (input as any).call_id;
     let orgId = input.organization_id;
-    if (!orgId) {
+    if (!orgId && callSessionId) {
       const call = await this.getById(callSessionId);
       orgId = call?.organization_id;
     }
 
+    if (!orgId || !callSessionId) {
+      throw new Error('Call transcript requires organization_id and call_session_id');
+    }
+
     const transcriptBody =
       input.body ||
-      (input.speaker && input.text ? `${input.speaker}: ${input.text}` : input.text || '');
+      ((input as any).speaker && (input as any).text
+        ? `${(input as any).speaker}: ${(input as any).text}`
+        : (input as any).text || '');
 
-    const payload: CallTranscriptInsert = {
-      ...input,
-      organization_id: orgId || undefined,
+    const payload = {
+      organization_id: orgId,
       call_session_id: callSessionId,
-      call_id: callSessionId,
-      body: transcriptBody,
-      text: input.text || transcriptBody,
-      speaker: input.speaker || 'system',
-      sequence_number: input.sequence_number ?? 0,
+      body: transcriptBody || 'Transcript turn',
     };
 
     const { data, error } = await this.supabase
       .from('call_transcripts')
-      .insert(payload)
+      .insert(payload as any)
       .select()
       .single();
+
     if (error) throw error;
     return data as CallTranscriptRow;
   }
@@ -245,53 +393,47 @@ export class CallsRepository {
     const { data, error } = await this.supabase
       .from('call_transcripts')
       .select('*')
-      .or(`call_id.eq.${callId},call_session_id.eq.${callId}`)
+      .eq('call_session_id', callId)
       .order('created_at', { ascending: true });
-    if (error) {
-      const { data: fallback } = await this.supabase
-        .from('call_transcripts')
-        .select('*')
-        .eq('call_session_id', callId)
-        .order('created_at', { ascending: true });
-      return (fallback as CallTranscriptRow[]) ?? [];
-    }
+
+    if (error) return [];
     return (data as CallTranscriptRow[]) ?? [];
   }
 
+  /**
+   * Ingests webhook events idempotently in public.webhook_events matching remote schema.
+   */
   async recordWebhookEvent(
     input: WebhookEventInsert
   ): Promise<{ isDuplicate: boolean; event: WebhookEventRow }> {
-    const extId = input.external_id || input.external_event_id;
-    const providerOrSource = input.source || input.provider || 'retell';
+    const extId = input.external_id || (input as any).external_event_id || null;
+    const providerOrSource = input.source || (input as any).provider || 'retell';
 
     // 1. Idempotency Check
-    let existing: WebhookEventRow | null = null;
     if (extId) {
       const { data } = await this.supabase
         .from('webhook_events')
         .select('*')
-        .or(`external_event_id.eq.${extId},external_id.eq.${extId}`)
+        .eq('external_id', extId)
         .maybeSingle();
-      if (data) existing = data as unknown as WebhookEventRow;
+      if (data) {
+        return { isDuplicate: true, event: data as WebhookEventRow };
+      }
     }
 
-    if (existing) {
-      return { isDuplicate: true, event: existing };
-    }
-
-    // 2. Insert event record
-    const payload: WebhookEventInsert = {
-      ...input,
-      provider: providerOrSource,
+    // 2. Insert event record using only remote schema columns
+    const payload = {
+      organization_id: input.organization_id || null,
       source: providerOrSource,
-      external_id: extId,
-      external_event_id: extId,
+      event_type: input.event_type,
+      payload: input.payload,
       received_at: input.received_at || new Date().toISOString(),
+      external_id: extId,
     };
 
     const { data: created, error: insertError } = await this.supabase
       .from('webhook_events')
-      .insert(payload)
+      .insert(payload as any)
       .select()
       .single();
 
@@ -300,22 +442,11 @@ export class CallsRepository {
   }
 
   async updateWebhookEventStatus(
-    id: string,
-    status: WebhookStatusDb,
-    error?: string
+    _id: string,
+    _status: WebhookStatusDb,
+    _error?: string
   ): Promise<void> {
-    try {
-      await this.supabase
-        .from('webhook_events')
-        .update({
-          processing_status: status,
-          error_message: error ?? null,
-          processed_at: new Date().toISOString(),
-        })
-        .eq('id', id);
-    } catch {
-      // Ignore if columns are not present on remote schema
-    }
+    // No-op: webhook_events table in remote schema does not maintain mutable processing_status columns
   }
 
   async assignWebhookOrganization(id: string, orgId: string): Promise<void> {
@@ -323,11 +454,14 @@ export class CallsRepository {
       .from('webhook_events')
       .update({
         organization_id: orgId,
-      })
+      } as any)
       .eq('id', id);
     if (error) throw error;
   }
 
+  /**
+   * Persists call outcomes to public.call_outcomes matching remote schema.
+   */
   async recordOutcome(input: {
     call_session_id: string;
     organization_id: string;
@@ -342,9 +476,9 @@ export class CallsRepository {
         disposition: input.disposition,
         notes: input.notes || '',
         recorded_by: input.recorded_by || null,
-      });
+      } as any);
     } catch {
-      // Gracefully ignore if constraints differ
+      // Gracefully handle if call_outcomes insert constraints differ
     }
   }
 }
