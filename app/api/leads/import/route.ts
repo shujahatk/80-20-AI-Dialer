@@ -40,7 +40,8 @@ export async function POST(req: NextRequest) {
       const preview = await service.previewCsvImport(
         csvContent,
         mappings,
-        defaultCountry ?? 'US'
+        defaultCountry ?? 'US',
+        auth.organizationId
       );
       return NextResponse.json({ success: true, data: preview });
     }

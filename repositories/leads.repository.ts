@@ -260,24 +260,46 @@ export class LeadsRepository {
   ): Promise<LeadRow[]> {
     if (phones.length === 0 && emails.length === 0) return [];
 
-    let query = this.supabase
-      .from('leads')
-      .select('*')
-      .eq('organization_id', orgId);
+    const cleanEmails = Array.from(new Set(emails.map((e) => e.toLowerCase().trim()).filter(Boolean)));
+    const cleanPhones = Array.from(new Set(phones.map((p) => p.trim()).filter(Boolean)));
+    const matches: LeadRow[] = [];
 
-    const orClauses: string[] = [];
-    if (phones.length > 0) {
-      orClauses.push(`phone.in.(${phones.join(',')})`);
+    // Query in safe chunks to prevent URL overflow
+    if (cleanEmails.length > 0) {
+      for (let i = 0; i < cleanEmails.length; i += 50) {
+        const chunk = cleanEmails.slice(i, i + 50);
+        const { data, error } = await this.supabase
+          .from('leads')
+          .select('*')
+          .eq('organization_id', orgId)
+          .is('deleted_at', null)
+          .in('email', chunk);
+        if (!error && data) {
+          matches.push(...(data as LeadRow[]));
+        }
+      }
     }
-    if (emails.length > 0) {
-      orClauses.push(`email.in.(${emails.join(',')})`);
+
+    if (cleanPhones.length > 0) {
+      for (let i = 0; i < cleanPhones.length; i += 50) {
+        const chunk = cleanPhones.slice(i, i + 50);
+        const { data, error } = await this.supabase
+          .from('leads')
+          .select('*')
+          .eq('organization_id', orgId)
+          .is('deleted_at', null)
+          .in('phone', chunk);
+        if (!error && data) {
+          matches.push(...(data as LeadRow[]));
+        }
+      }
     }
 
-    query = query.or(orClauses.join(','));
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data as LeadRow[]) ?? [];
+    const unique = new Map<string, LeadRow>();
+    for (const m of matches) {
+      unique.set(m.id, m);
+    }
+    return Array.from(unique.values());
   }
 
   async createBatch(chunk: LeadInsert[]): Promise<LeadRow[]> {

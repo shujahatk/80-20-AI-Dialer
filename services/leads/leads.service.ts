@@ -24,9 +24,11 @@ import {
   normalizeCsvRows,
   detectDuplicatesAndDnc,
   buildDatabaseOperations,
+  generateErrorCsv,
   type ColumnMappingConfig,
   type DuplicateStrategy,
   type CsvPreviewSummary,
+  type ImportProblemRow,
 } from '@/lib/csv/importer';
 import { getDevStore } from '@/lib/dev/dev-store';
 import type { Lead, LeadStatus } from '@/types';
@@ -682,8 +684,11 @@ export class LeadsService {
         totalRows: 0,
         readyRows: 0,
         validRows: 0,
+        newRows: 0,
         invalidRows: 0,
         duplicateCount: 0,
+        intraFileDuplicates: 0,
+        existingDuplicates: 0,
         dncCount: 0,
         warnings: parsed.errors,
         sampleRows: [],
@@ -693,7 +698,7 @@ export class LeadsService {
 
     const normalized = normalizeCsvRows(parsed.rows, mappings, defaultCountry);
 
-    const phones = normalized.map((r) => r.phoneE164).filter(Boolean);
+    const phones = normalized.map((r) => r.phoneE164).filter(Boolean) as string[];
     const emails = normalized.map((r) => r.email).filter(Boolean) as string[];
 
     let existingCandidates: LeadRow[] = [];
@@ -706,22 +711,27 @@ export class LeadsService {
       existingCandidates = await this.repo.findDuplicates(phones, emails, orgId);
     }
 
-    const { annotatedRows, duplicateCount, dncCount, problemRows } = detectDuplicatesAndDnc(normalized, existingCandidates);
+    const { annotatedRows, duplicateCount, intraFileDuplicates, existingDuplicates, dncCount, problemRows } =
+      detectDuplicatesAndDnc(normalized, existingCandidates);
 
     const validRows = annotatedRows.filter((r) => r.isValid).length;
     const invalidRows = annotatedRows.length - validRows;
     const readyRows = Math.max(0, annotatedRows.length - duplicateCount - dncCount - invalidRows);
+    const newRows = readyRows;
 
     return {
       totalRows: annotatedRows.length,
       readyRows,
       validRows,
+      newRows,
       invalidRows,
       duplicateCount,
+      intraFileDuplicates,
+      existingDuplicates,
       dncCount,
       warnings: parsed.errors,
       sampleRows: annotatedRows.slice(0, 5),
-      problemRows: problemRows.slice(0, 50),
+      problemRows: problemRows,
     };
   }
 
@@ -731,7 +741,7 @@ export class LeadsService {
   async executeCsvImport(
     rawCsvText: string,
     mappings: ColumnMappingConfig,
-    strategy: DuplicateStrategy,
+    strategy: DuplicateStrategy = 'skip',
     targetCampaignId?: string,
     filename: string = 'uploaded_leads.csv',
     organizationId?: string,
@@ -743,13 +753,18 @@ export class LeadsService {
     invalid: number;
     dncProtected: number;
     jobId: string;
+    totalRows: number;
+    intraFileDuplicates: number;
+    existingDuplicates: number;
+    problemRows: ImportProblemRow[];
+    errorCsv: string | null;
   }> {
     const orgId = organizationId ?? this.defaultOrgId;
     const parsed = parseCsv(rawCsvText);
     const normalized = normalizeCsvRows(parsed.rows, mappings);
 
     let existingCandidates: LeadRow[] = [];
-    const phones = normalized.map((r) => r.phoneE164).filter(Boolean);
+    const phones = normalized.map((r) => r.phoneE164).filter(Boolean) as string[];
     const emails = normalized.map((r) => r.email).filter(Boolean) as string[];
 
     if (this.isMockDevMode) {
@@ -758,7 +773,8 @@ export class LeadsService {
         (l) => (l.phone_e164 && phones.includes(l.phone_e164)) || (l.email && emails.includes(l.email.toLowerCase()))
       );
 
-      const { annotatedRows, duplicateCount, dncCount } = detectDuplicatesAndDnc(normalized, existingCandidates);
+      const { annotatedRows, duplicateCount, intraFileDuplicates, existingDuplicates, dncCount, problemRows } =
+        detectDuplicatesAndDnc(normalized, existingCandidates);
       const { toInsert, toUpdate, skippedCount } = buildDatabaseOperations(
         annotatedRows,
         existingCandidates,
@@ -770,7 +786,7 @@ export class LeadsService {
       let updatedCount = 0;
 
       for (const item of toInsert) {
-        const fullName = `${item.first_name} ${item.last_name}`.trim();
+        const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || 'Unnamed Lead';
         const newLead: LeadRow = {
           id: `ld_import_${Date.now()}_${insertedCount}`,
           organization_id: orgId,
@@ -819,6 +835,8 @@ export class LeadsService {
         }
       }
 
+      const errorCsv = problemRows.length > 0 ? generateErrorCsv(problemRows) : null;
+
       return {
         inserted: insertedCount,
         updated: updatedCount,
@@ -826,6 +844,11 @@ export class LeadsService {
         invalid: annotatedRows.filter((r) => !r.isValid).length,
         dncProtected: dncCount,
         jobId: `job_dev_${Date.now()}`,
+        totalRows: annotatedRows.length,
+        intraFileDuplicates,
+        existingDuplicates,
+        problemRows,
+        errorCsv,
       };
     }
 
@@ -833,13 +856,44 @@ export class LeadsService {
     // The RPC internally creates the lead_import_jobs record, executes deduplication,
     // and returns the canonical job_id and processing metrics.
     // We do NOT create a separate job prior to the RPC, preventing duplicate job records.
-    const payloadRows = normalized.map((r) => {
+    existingCandidates = await this.repo.findDuplicates(phones, emails, orgId);
+
+    const { annotatedRows, duplicateCount, intraFileDuplicates, existingDuplicates, dncCount, problemRows } =
+      detectDuplicatesAndDnc(normalized, existingCandidates);
+
+    const errorCsv = problemRows.length > 0 ? generateErrorCsv(problemRows) : null;
+
+    // Filter to rows that should be imported based on strategy
+    const rowsToImport = annotatedRows.filter((r) => {
+      if (!r.isValid) return false;
+      if (r.isDuplicate && strategy === 'skip') return false;
+      return true;
+    });
+
+    if (rowsToImport.length === 0) {
+      const jobId = `job_empty_${Date.now()}`;
+      return {
+        inserted: 0,
+        updated: 0,
+        skipped: duplicateCount,
+        invalid: annotatedRows.filter((r) => !r.isValid).length,
+        dncProtected: dncCount,
+        jobId,
+        totalRows: annotatedRows.length,
+        intraFileDuplicates,
+        existingDuplicates,
+        problemRows,
+        errorCsv,
+      };
+    }
+
+    const payloadRows = rowsToImport.map((r) => {
       const fullName =
         [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
-        (r as unknown as { name?: string }).name ||
+        r.name ||
         'Unnamed lead';
-      const company = r.companyName || (r as unknown as { company?: string }).company || '';
-      const title = r.jobTitle || (r as unknown as { title?: string }).title || '';
+      const company = r.company || '';
+      const title = r.title || '';
       const phone = r.phoneE164 || r.phone || '';
       const email = r.email || '';
       const city = r.city || '';
@@ -853,8 +907,8 @@ export class LeadsService {
         city,
         first_name: r.firstName,
         last_name: r.lastName,
-        company_name: r.companyName,
-        job_title: r.jobTitle,
+        company_name: r.company,
+        job_title: r.title,
         country: r.country || 'US',
         region: r.region || null,
         timezone: r.timezone || 'America/Chicago',
@@ -899,9 +953,10 @@ export class LeadsService {
     const jobId = String(res.job_id || res.id || `job_rpc_${Date.now()}`);
     const inserted = Number(res.inserted ?? res.inserted_count ?? 0);
     const updated = Number(res.updated ?? res.updated_count ?? 0);
-    const skipped = Number(res.duplicates ?? res.duplicate_count ?? res.skipped ?? res.skipped_count ?? 0);
-    const invalid = Number(res.invalid ?? res.invalid_count ?? 0);
-    const dncProtected = Number(res.dnc_protected ?? res.dncProtected ?? 0);
+    const rpcSkipped = Number(res.duplicates ?? res.duplicate_count ?? res.skipped ?? res.skipped_count ?? 0);
+    const skipped = rpcSkipped + (normalized.length - rowsToImport.length);
+    const invalid = Number(res.invalid ?? res.invalid_count ?? annotatedRows.filter((r) => !r.isValid).length);
+    const dncProtected = Number(res.dnc_protected ?? res.dncProtected ?? dncCount);
 
     // Audit log referencing canonical job_id created by RPC
     await this.logAudit(orgId, actorId, 'leads.csv_imported', 'lead_import_jobs', jobId, {
@@ -924,6 +979,11 @@ export class LeadsService {
       invalid,
       dncProtected,
       jobId,
+      totalRows: annotatedRows.length,
+      intraFileDuplicates,
+      existingDuplicates,
+      problemRows,
+      errorCsv,
     };
   }
 

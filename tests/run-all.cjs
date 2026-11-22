@@ -13,6 +13,7 @@ const suites = [
   { name: 'Step 6 Retell AI Voice Engine & Integration Suite', file: path.join(__dirname, 'test-step6-retell.cjs') },
   { name: 'Phase 1.1 Approval & CSV Import Integrity Suite', file: path.join(__dirname, 'test-phase1-1-integrity.cjs') },
   { name: 'Supabase Schema Alignment & Call Workflow Suite', file: path.join(__dirname, 'test-schema-alignment.cjs') },
+  { name: 'CSV Upload & Intelligent Lead Detection Suite', file: path.join(__dirname, 'test-csv-import.cjs') },
 ];
 
 let allPassed = true;
@@ -39,6 +40,6 @@ for (const suite of suites) {
 }
 
 console.log('\n========================================================================');
-console.log('ALL TEST SUITES PASSED SUCCESSFULLY (142 / 142 TESTS)');
+console.log('ALL TEST SUITES PASSED SUCCESSFULLY (182 / 182 TESTS)');
 console.log('========================================================================\n');
 process.exit(0);

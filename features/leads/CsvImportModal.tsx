@@ -10,6 +10,7 @@ import {
   type ColumnMappingResult,
 } from '@/lib/csv/mapping';
 import type { CsvPreviewSummary, DuplicateStrategy, ImportProblemRow } from '@/lib/csv/importer';
+import { generateErrorCsv } from '@/lib/csv/importer';
 
 interface CsvImportModalProps {
   isOpen: boolean;
@@ -24,6 +25,11 @@ interface ImportResultData {
   invalid: number;
   dncProtected: number;
   jobId?: string;
+  totalRows?: number;
+  intraFileDuplicates?: number;
+  existingDuplicates?: number;
+  problemRows?: ImportProblemRow[];
+  errorCsv?: string | null;
 }
 
 const SAMPLE_CSV = `Full Name,Work Phone,Organisation,Role,Direct Email,City,Country
@@ -177,6 +183,17 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
       onImportComplete?.(importResult.inserted + importResult.updated);
     }
     onClose();
+  };
+
+  const handleDownloadCsv = (csvData: string, filePrefix: string = 'import_issues') => {
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${filePrefix}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const getSystemFieldLabel = (field: RmSystemField): string => {
@@ -408,7 +425,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                         <th className="py-2.5 px-3">CSV Column</th>
                         <th className="py-2.5 px-3">Mapped To</th>
                         <th className="py-2.5 px-3">Example</th>
-                        <th className="py-2.5 px-3">Mapping</th>
+                        <th className="py-2.5 px-3">Match Confidence</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -430,7 +447,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                             >
                               {RM_FIELD_DEFINITIONS.map((def) => (
                                 <option key={def.id} value={def.id}>
-                                  {def.label}
+                                  {def.label} {def.isRequired ? '(Required)' : ''}
                                 </option>
                               ))}
                             </select>
@@ -440,11 +457,17 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                           </td>
                           <td className="py-2.5 px-3">
                             {row.systemField !== 'do_not_map' ? (
-                              <span className="inline-flex items-center gap-1 text-[12px] text-on-surface-variant">
-                                <span className="font-medium text-on-surface">{row.csvHeader}</span>
-                                <span>→</span>
-                                <span className="font-semibold text-primary">{getSystemFieldLabel(row.systemField)}</span>
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                    row.confidence >= 80
+                                      ? 'bg-success/15 text-success border border-success/30'
+                                      : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                                  }`}
+                                >
+                                  {row.confidence >= 80 ? 'Matched' : 'Manual Review'} ({row.confidence}%)
+                                </span>
+                              </div>
                             ) : (
                               <span className="text-[12px] text-on-surface-muted italic">Ignored</span>
                             )}
@@ -462,13 +485,13 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
           {step === 3 && previewSummary && (
             <div className="flex flex-col gap-4">
               {/* Clean KPI Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
                 {/* Total Rows */}
                 <div className="p-3 rounded-xl bg-surface-elevated border border-border flex flex-col">
                   <span className="text-[18px] font-bold text-on-surface">
                     {previewSummary.totalRows.toLocaleString()}
                   </span>
-                  <span className="text-[12px] text-on-surface-variant">Total Rows</span>
+                  <span className="text-[11px] text-on-surface-variant font-medium">Total Rows</span>
                 </div>
 
                 {/* Ready to Import */}
@@ -476,15 +499,23 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                   <span className="text-[18px] font-bold text-primary">
                     {previewSummary.readyRows.toLocaleString()}
                   </span>
-                  <span className="text-[12px] text-success">Ready to Import</span>
+                  <span className="text-[11px] text-success font-medium">Valid &amp; Ready</span>
                 </div>
 
-                {/* Duplicates */}
+                {/* Intra-file Duplicates */}
+                <div className="p-3 rounded-xl bg-surface-elevated border border-amber-500/30 flex flex-col">
+                  <span className="text-[18px] font-bold text-amber-600 dark:text-amber-400">
+                    {(previewSummary.intraFileDuplicates ?? 0).toLocaleString()}
+                  </span>
+                  <span className="text-[11px] text-on-surface-variant font-medium">File Duplicates</span>
+                </div>
+
+                {/* Database Duplicates */}
                 <div className="p-3 rounded-xl bg-surface-elevated border border-border flex flex-col">
                   <span className="text-[18px] font-bold text-on-surface">
-                    {Math.max(0, previewSummary.duplicateCount - previewSummary.dncCount).toLocaleString()}
+                    {(previewSummary.existingDuplicates ?? 0).toLocaleString()}
                   </span>
-                  <span className="text-[12px] text-on-surface-variant">Duplicates</span>
+                  <span className="text-[11px] text-on-surface-variant font-medium">DB Existing</span>
                 </div>
 
                 {/* Invalid */}
@@ -492,15 +523,15 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                   <span className="text-[18px] font-bold text-error">
                     {previewSummary.invalidRows.toLocaleString()}
                   </span>
-                  <span className="text-[12px] text-error">Invalid</span>
+                  <span className="text-[11px] text-error font-medium">Invalid</span>
                 </div>
 
                 {/* DNC Protected */}
-                <div className="p-3 rounded-xl bg-surface-elevated border border-error/30 flex flex-col col-span-2 sm:col-span-1">
+                <div className="p-3 rounded-xl bg-surface-elevated border border-error/30 flex flex-col">
                   <span className="text-[18px] font-bold text-error">
                     {previewSummary.dncCount.toLocaleString()}
                   </span>
-                  <span className="text-[12px] text-error">DNC Protected</span>
+                  <span className="text-[11px] text-error font-medium">DNC Blocked</span>
                 </div>
               </div>
 
@@ -616,8 +647,10 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                                   className={`px-2 py-0.5 rounded text-[11px] font-medium ${
                                     prob.issueType === 'dnc_protected'
                                       ? 'bg-error-surface text-error'
-                                      : prob.issueType === 'invalid_phone'
+                                      : prob.issueType === 'invalid_data'
                                       ? 'bg-error-surface text-error'
+                                      : prob.issueType === 'duplicate_csv'
+                                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
                                       : 'bg-surface-secondary text-on-surface'
                                   }`}
                                 >
@@ -631,6 +664,24 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+
+                  {showIssuesReview && previewSummary.problemRows.length > 0 && (
+                    <div className="p-2.5 bg-surface-elevated border-t border-border flex items-center justify-end">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDownloadCsv(
+                            generateErrorCsv(previewSummary.problemRows),
+                            'pre_import_issues'
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-secondary text-primary font-semibold text-[12px] border border-border shadow-sm transition-colors"
+                      >
+                        <Icon name="download" size={14} />
+                        <span>Download Flagged Records CSV</span>
+                      </button>
                     </div>
                   )}
                 </div>
@@ -652,6 +703,13 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                 <span className="text-[14px] text-on-surface-variant max-w-md">
                   All records have been processed and saved to your leads database.
                 </span>
+                {importResult.jobId && (
+                  <div className="mt-1">
+                    <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
+                      RPC Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* 5 Result Metric Cards */}
@@ -691,6 +749,24 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                   <span className="text-[12px] text-error">DNC Protected</span>
                 </div>
               </div>
+
+              {importResult.errorCsv && (
+                <div className="flex flex-col items-center gap-1.5 mt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleDownloadCsv(importResult.errorCsv!, 'lead_import_problem_rows')
+                    }
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-elevated hover:bg-surface-secondary text-primary font-semibold text-[13px] border border-border shadow-sm transition-colors"
+                  >
+                    <Icon name="download" size={16} />
+                    <span>Download Problem Rows CSV</span>
+                  </button>
+                  <span className="text-[11px] text-on-surface-variant">
+                    Contains skipped duplicates, invalid rows, and DNC protected records with explanations.
+                  </span>
+                </div>
+              )}
 
               <p className="text-[12px] text-on-surface-variant">
                 Do Not Call safeguards and duplicate rules were strictly enforced.
@@ -766,7 +842,20 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
               </div>
             </>
           ) : (
-            <div className="w-full flex justify-end">
+            <div className="w-full flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setStep(1);
+                  setCsvContent('');
+                  setFilename('');
+                  setPreviewSummary(null);
+                  setImportResult(null);
+                }}
+                className="px-4 py-2 rounded-lg bg-surface text-on-surface text-[14px] hover:bg-surface-secondary transition-colors border border-border"
+                type="button"
+              >
+                Upload Another CSV
+              </button>
               <button
                 onClick={handleFinish}
                 className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-primary text-on-primary text-[14px] font-semibold shadow-sm hover:bg-primary-hover transition-colors"

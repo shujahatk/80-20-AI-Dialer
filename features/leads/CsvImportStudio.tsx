@@ -12,6 +12,21 @@ import {
   type ColumnMappingResult,
 } from '@/lib/csv/mapping';
 import type { CsvPreviewSummary, DuplicateStrategy, ImportProblemRow } from '@/lib/csv/importer';
+import { generateErrorCsv } from '@/lib/csv/importer';
+
+interface ImportResultData {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  invalid: number;
+  dncProtected: number;
+  jobId?: string;
+  totalRows?: number;
+  intraFileDuplicates?: number;
+  existingDuplicates?: number;
+  problemRows?: ImportProblemRow[];
+  errorCsv?: string | null;
+}
 
 const SAMPLE_CSV = `Full Name,Work Phone,Organisation,Role,Direct Email,City,Country
 Marcus Brody,+1 415 890 2104,PrimeFreight Inc.,VP Operations,m.brody@primefreight.io,San Francisco,US
@@ -30,18 +45,23 @@ export const CsvImportStudio: React.FC = () => {
   const [mappings, setMappings] = useState<ColumnMappingResult[]>([]);
   const [dedupStrat, setDedupStrat] = useState<DuplicateStrategy>('skip');
   const [previewSummary, setPreviewSummary] = useState<CsvPreviewSummary | null>(null);
-  const [importResult, setImportResult] = useState<{
-    inserted: number;
-    updated: number;
-    skipped: number;
-    invalid: number;
-    dncProtected: number;
-  } | null>(null);
+  const [importResult, setImportResult] = useState<ImportResultData | null>(null);
   const [showIssuesReview, setShowIssuesReview] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDownloadCsv = (csvData: string, filePrefix: string = 'import_issues') => {
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${filePrefix}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handleFileUpload = (file: File) => {
     setFilename(file.name);
@@ -307,7 +327,7 @@ export const CsvImportStudio: React.FC = () => {
                     <th className="py-2.5 px-3">CSV Column Header</th>
                     <th className="py-2.5 px-3">Sample Data</th>
                     <th className="py-2.5 px-3">RM Dialer Field</th>
-                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3">Match Confidence</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -337,11 +357,18 @@ export const CsvImportStudio: React.FC = () => {
                       </td>
                       <td className="py-3 px-3">
                         {m.systemField !== 'do_not_map' ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-                            <Icon name="check" size={14} /> Matched
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded ${
+                              m.confidence >= 80
+                                ? 'bg-success/15 text-success border border-success/30'
+                                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                            }`}
+                          >
+                            <Icon name={m.confidence >= 80 ? 'check' : 'help_outline'} size={14} />
+                            {m.confidence >= 80 ? 'Matched' : 'Manual Review'} ({m.confidence}%)
                           </span>
                         ) : (
-                          <span className="text-xs text-on-surface-variant">Ignored</span>
+                          <span className="text-xs text-on-surface-variant italic">Ignored</span>
                         )}
                       </td>
                     </tr>
@@ -383,24 +410,111 @@ export const CsvImportStudio: React.FC = () => {
             </div>
 
             {/* Metric Boxes */}
-            <div className="grid grid-cols-4 gap-4">
-              <div className="p-4 rounded-lg bg-surface-elevated border border-border flex flex-col">
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-border flex flex-col">
                 <span className="text-xs text-on-surface-variant uppercase font-mono">Total Rows</span>
                 <span className="text-2xl font-bold text-on-surface mt-1">{previewSummary.totalRows}</span>
               </div>
-              <div className="p-4 rounded-lg bg-success/10 border border-success/30 flex flex-col">
-                <span className="text-xs text-success uppercase font-mono">Valid Phone Numbers</span>
-                <span className="text-2xl font-bold text-success mt-1">{previewSummary.validRows}</span>
+              <div className="p-3.5 rounded-lg bg-success/10 border border-success/30 flex flex-col">
+                <span className="text-xs text-success uppercase font-mono">Valid &amp; Ready</span>
+                <span className="text-2xl font-bold text-success mt-1">{previewSummary.readyRows}</span>
               </div>
-              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/30 flex flex-col">
-                <span className="text-xs text-amber-600 dark:text-amber-400 uppercase font-mono">Existing Duplicates</span>
-                <span className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">{previewSummary.duplicateCount}</span>
+              <div className="p-3.5 rounded-lg bg-amber-500/10 border border-amber-500/30 flex flex-col">
+                <span className="text-xs text-amber-600 dark:text-amber-400 uppercase font-mono">File Duplicates</span>
+                <span className="text-2xl font-bold text-amber-600 dark:text-amber-400 mt-1">{previewSummary.intraFileDuplicates ?? 0}</span>
               </div>
-              <div className="p-4 rounded-lg bg-error/10 border border-error/30 flex flex-col">
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-border flex flex-col">
+                <span className="text-xs text-on-surface-variant uppercase font-mono">DB Existing</span>
+                <span className="text-2xl font-bold text-on-surface mt-1">{previewSummary.existingDuplicates ?? 0}</span>
+              </div>
+              <div className="p-3.5 rounded-lg bg-error/10 border border-error/30 flex flex-col">
+                <span className="text-xs text-error uppercase font-mono">Invalid Data</span>
+                <span className="text-2xl font-bold text-error mt-1">{previewSummary.invalidRows}</span>
+              </div>
+              <div className="p-3.5 rounded-lg bg-error/10 border border-error/30 flex flex-col">
                 <span className="text-xs text-error uppercase font-mono">DNC Protected</span>
                 <span className="text-2xl font-bold text-error mt-1">{previewSummary.dncCount}</span>
               </div>
             </div>
+
+            {/* Problem Records Review Accordion */}
+            {previewSummary.problemRows && previewSummary.problemRows.length > 0 && (
+              <div className="rounded-lg bg-surface border border-border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowIssuesReview(!showIssuesReview)}
+                  className="w-full p-3.5 flex items-center justify-between text-sm font-semibold text-on-surface hover:bg-surface-elevated transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon
+                      name={showIssuesReview ? 'expand_less' : 'expand_more'}
+                      size={18}
+                      className="text-on-surface-variant"
+                    />
+                    <span>Review Flagged Records ({previewSummary.problemRows.length} issues)</span>
+                  </div>
+                  <span className="text-xs text-primary font-medium">
+                    {showIssuesReview ? 'Hide details' : 'Show details'}
+                  </span>
+                </button>
+
+                {showIssuesReview && (
+                  <div className="p-3 border-t border-border overflow-x-auto max-h-56">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="text-on-surface-variant uppercase font-mono border-b border-border pb-1">
+                          <th className="py-1 px-2">Row</th>
+                          <th className="py-1 px-2">Name</th>
+                          <th className="py-1 px-2">Phone</th>
+                          <th className="py-1 px-2">Category</th>
+                          <th className="py-1 px-2">Details</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {previewSummary.problemRows.map((prob, idx) => (
+                          <tr key={idx} className="hover:bg-surface-elevated">
+                            <td className="py-1.5 px-2 text-on-surface-variant font-mono">#{prob.rowNumber}</td>
+                            <td className="py-1.5 px-2 font-medium text-on-surface">{prob.name}</td>
+                            <td className="py-1.5 px-2 text-on-surface-variant font-mono">{prob.phone}</td>
+                            <td className="py-1.5 px-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                                  prob.issueType === 'dnc_protected'
+                                    ? 'bg-error/15 text-error'
+                                    : prob.issueType === 'invalid_data'
+                                    ? 'bg-error/15 text-error'
+                                    : prob.issueType === 'duplicate_csv'
+                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                    : 'bg-surface-secondary text-on-surface'
+                                }`}
+                              >
+                                {prob.issue}
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-2 text-on-surface-variant">{prob.details}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {showIssuesReview && previewSummary.problemRows.length > 0 && (
+                  <div className="p-2.5 bg-surface-elevated border-t border-border flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleDownloadCsv(generateErrorCsv(previewSummary.problemRows), 'pre_import_issues')
+                      }
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-secondary text-primary font-semibold text-xs border border-border shadow-sm transition-colors"
+                    >
+                      <Icon name="download" size={14} />
+                      <span>Download Flagged Records CSV</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Duplicate Strategy Option */}
             <div className="p-4 rounded-lg bg-surface-elevated border border-border flex flex-col gap-3">
@@ -464,26 +578,53 @@ export const CsvImportStudio: React.FC = () => {
               <p className="text-sm text-on-surface-variant mt-1">
                 Your lead batch has been ingested and queued for campaign dialer routing.
               </p>
+              {importResult.jobId && (
+                <div className="mt-2">
+                  <span className="inline-block px-3 py-1 rounded-full bg-surface-elevated text-on-surface-variant text-xs font-mono border border-border">
+                    RPC Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                  </span>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-4 gap-4 w-full max-w-2xl text-center">
-              <div className="p-4 rounded-lg bg-surface-elevated border border-border">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 w-full max-w-3xl text-center">
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-border">
                 <span className="text-xs text-on-surface-variant uppercase font-mono">New Leads</span>
                 <span className="text-2xl font-bold text-success mt-1 block">{importResult.inserted}</span>
               </div>
-              <div className="p-4 rounded-lg bg-surface-elevated border border-border">
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-border">
                 <span className="text-xs text-on-surface-variant uppercase font-mono">Updated</span>
                 <span className="text-2xl font-bold text-primary mt-1 block">{importResult.updated}</span>
               </div>
-              <div className="p-4 rounded-lg bg-surface-elevated border border-border">
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-border">
                 <span className="text-xs text-on-surface-variant uppercase font-mono">Skipped</span>
                 <span className="text-2xl font-bold text-on-surface-variant mt-1 block">{importResult.skipped}</span>
               </div>
-              <div className="p-4 rounded-lg bg-surface-elevated border border-border">
-                <span className="text-xs text-on-surface-variant uppercase font-mono">DNC Blocked</span>
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-error/30">
+                <span className="text-xs text-error uppercase font-mono">Invalid</span>
+                <span className="text-2xl font-bold text-error mt-1 block">{importResult.invalid}</span>
+              </div>
+              <div className="p-3.5 rounded-lg bg-surface-elevated border border-error/30">
+                <span className="text-xs text-error uppercase font-mono">DNC Blocked</span>
                 <span className="text-2xl font-bold text-error mt-1 block">{importResult.dncProtected}</span>
               </div>
             </div>
+
+            {importResult.errorCsv && (
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadCsv(importResult.errorCsv!, 'lead_import_problem_rows')}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-surface-elevated hover:bg-surface-secondary text-primary font-semibold text-xs border border-border shadow-sm transition-colors"
+                >
+                  <Icon name="download" size={16} />
+                  <span>Download Problem Rows CSV</span>
+                </button>
+                <span className="text-[11px] text-on-surface-variant">
+                  Contains skipped duplicates, invalid rows, and DNC protected records with row-level error explanations.
+                </span>
+              </div>
+            )}
 
             <div className="flex items-center gap-3">
               <Link

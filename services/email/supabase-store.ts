@@ -549,17 +549,17 @@ export class SupabaseEmailStore {
       db().from('call_transcripts').select('speaker, text, sequence_number').eq('call_id', callId).order('sequence_number'),
       call.lead_id
         ? db()
-            .from('leads')
-            .select('id, name, company, email, city, do_not_call, notes, metadata, consent_at')
-            .eq('id', call.lead_id)
-            .maybeSingle()
+          .from('leads')
+          .select('id, name, company, email, city, do_not_call, notes, metadata, consent_at')
+          .eq('id', call.lead_id)
+          .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
       call.campaign_id
         ? db()
-            .from('campaigns')
-            .select('*')
-            .eq('id', call.campaign_id)
-            .maybeSingle()
+          .from('campaigns')
+          .select('*')
+          .eq('id', call.campaign_id)
+          .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
       db().from('audit_logs').select('action').eq('entity', 'call_session').eq('entity_id', callId),
     ]);
@@ -579,30 +579,30 @@ export class SupabaseEmailStore {
     const leadMeta = (leadRow?.metadata as Record<string, unknown>) ?? {};
     const lead: FollowUpLead | null = leadRow
       ? {
-          id: String(leadRow.id),
-          firstName: String(leadRow.first_name || firstName),
-          lastName: String(leadRow.last_name || lastName),
-          companyName: String(leadRow.company || leadRow.company_name || ''),
-          email: leadRow.email ? String(leadRow.email) : null,
-          country: String(leadRow.country || leadMeta.country || ''),
-          region: String(leadRow.region || leadMeta.region || leadRow.city || ''),
-          isDnc: Boolean(leadRow.do_not_call || leadRow.is_dnc),
-          unsubscribed: Boolean(leadMeta.unsubscribed || (leadRow.notes && String(leadRow.notes).includes('unsubscribed'))),
-          stopAllContact: Boolean(leadRow.do_not_call),
-          emailOptIn: Boolean(leadRow.consent_at || leadMeta.email_opt_in),
-          lawfulBasis: asBasis(leadMeta.lawful_basis || 'legitimate_interest_documented'),
-          lawfulBasisEvidence: leadMeta.lawful_basis_evidence ? String(leadMeta.lawful_basis_evidence) : null,
-        }
+        id: String(leadRow.id),
+        firstName: String(leadRow.first_name || firstName),
+        lastName: String(leadRow.last_name || lastName),
+        companyName: String(leadRow.company || leadRow.company_name || ''),
+        email: leadRow.email ? String(leadRow.email) : null,
+        country: String(leadRow.country || leadMeta.country || ''),
+        region: String(leadRow.region || leadMeta.region || leadRow.city || ''),
+        isDnc: Boolean(leadRow.do_not_call || leadRow.is_dnc),
+        unsubscribed: Boolean(leadMeta.unsubscribed || (leadRow.notes && String(leadRow.notes).includes('unsubscribed'))),
+        stopAllContact: Boolean(leadRow.do_not_call),
+        emailOptIn: Boolean(leadRow.consent_at || leadMeta.email_opt_in),
+        lawfulBasis: asBasis(leadMeta.lawful_basis || 'legitimate_interest_documented'),
+        lawfulBasisEvidence: leadMeta.lawful_basis_evidence ? String(leadMeta.lawful_basis_evidence) : null,
+      }
       : null;
     const campaign: FollowUpCampaign | null = campaignRow
       ? {
-          id: String(campaignRow.id),
-          name: String(campaignRow.name ?? ''),
-          emailFollowupEnabled: Boolean(campaignRow.email_followup_enabled),
-          lawfulBasis: asBasis(campaignRow.email_lawful_basis),
-          lawfulBasisNote: campaignRow.email_lawful_basis_note ? String(campaignRow.email_lawful_basis_note) : null,
-          instructions: campaignRow.email_instructions ? String(campaignRow.email_instructions) : null,
-        }
+        id: String(campaignRow.id),
+        name: String(campaignRow.name ?? ''),
+        emailFollowupEnabled: Boolean(campaignRow.email_followup_enabled),
+        lawfulBasis: asBasis(campaignRow.email_lawful_basis),
+        lawfulBasisNote: campaignRow.email_lawful_basis_note ? String(campaignRow.email_lawful_basis_note) : null,
+        instructions: campaignRow.email_instructions ? String(campaignRow.email_instructions) : null,
+      }
       : null;
     return {
       organizationId,
