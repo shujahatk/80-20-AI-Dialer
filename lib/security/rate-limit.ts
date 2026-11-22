@@ -143,6 +143,12 @@ export async function checkRateLimit(
       // Log sanitized error message without exposing connection strings, URLs, or secrets
       console.error(`[RateLimiter] Database rate limit RPC failure (code: ${error.code || 'UNKNOWN'}).`);
 
+      // If the RPC is not installed in the database (PGRST202 / 42883),
+      // gracefully fall back to sliding window in-memory rate limiting so endpoints remain protected without failing closed.
+      if (error.code === 'PGRST202' || error.code === '42883' || error.message?.includes('check_shared_rate_limit')) {
+        return checkMemoryRateLimit(key, limit, windowMs);
+      }
+
       if (isProductionOrLive) {
         // Fail closed in production / live mode
         return {

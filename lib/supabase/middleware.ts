@@ -5,6 +5,7 @@ import { getClientEnv, isMockDevMode } from '../env';
 
 // Public endpoints that do not require an active Supabase user session
 const PUBLIC_API_ROUTES = [
+  '/api/health',
   '/api/webhooks/retell',
   '/api/webhooks/resend',
   '/api/webhooks/twilio/call-status',
