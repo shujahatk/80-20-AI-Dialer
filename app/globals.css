@@ -1,0 +1,461 @@
+@import '../MINETECH-UI-KIT/styles/animations.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', sans-serif;
+  --font-plus-jakarta: 'Plus Jakarta Sans', sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', monospace;
+
+  --ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-fast: 140ms;
+  --motion-normal: 220ms;
+  --motion-slow: 320ms;
+  --motion-dialog: 220ms;
+  --duration-fast: 150ms;
+  --duration-base: 220ms;
+  --duration-slow: 320ms;
+  --chart-track: #e4ebe7;
+  --danger: var(--error);
+
+  /* LIGHT MODE — porcelain canvas, premium pine */
+  --background: #f4f6f4;
+  --surface: #ffffff;
+  --surface-secondary: #eef2ef;
+  --surface-elevated: #f8faf8;
+
+  --sidebar: #f3f6f4;
+  --sidebar-hover: rgba(47, 93, 80, 0.07);
+  --sidebar-text: #1c2824;
+  --sidebar-border: #d5ded8;
+  --sidebar-active: #ddeae4;
+
+  --primary: #2f5d50;
+  --primary-hover: #23463c;
+  --primary-foreground: #f7fbf9;
+
+  --secondary: #3e6b5b;
+  --secondary-hover: #2c4f44;
+  --secondary-foreground: #f7fbf9;
+
+  --accent: #3e6b5b;
+  --accent-surface: #ddeae4;
+
+  --text-primary: #1f2421;
+  --text-secondary: #5d6460;
+  --text-muted: #858b86;
+
+  --border: #d0dad4;
+  --border-strong: #b7c6be;
+
+  --success: #2f5d50;
+  --success-surface: #ddeae4;
+
+  --warning: #9a783f;
+  --warning-surface: #fbf4e8;
+
+  --error: #a64b46;
+  --error-surface: #f9eceb;
+
+  --info: #526a78;
+  --info-surface: #eef3f6;
+
+  --card-bg: #ffffff;
+  --card-border: #c9d5ce;
+  --input-bg: #ffffff;
+  --input-border: #c9d5ce;
+
+  --shadow-xs: 0 1px 2px rgba(31, 36, 33, 0.04);
+  --shadow-sm: 0 1px 3px rgba(31, 36, 33, 0.06), 0 1px 2px rgba(31, 36, 33, 0.04);
+  --shadow-md: 0 8px 20px -10px rgba(31, 36, 33, 0.14);
+  --shadow-lg: 0 18px 40px -18px rgba(31, 36, 33, 0.22);
+  --overlay: rgba(31, 36, 33, 0.42);
+  --ring: rgba(47, 93, 80, 0.32);
+  --disabled: #b7bbb6;
+  --disabled-surface: #eeeee9;
+  --elevation-1: var(--shadow-xs);
+  --elevation-2: var(--shadow-sm);
+  --elevation-3: var(--shadow-md);
+  --chart-track: #e4ebe7;
+  --chart-1: #2f5d50;
+  --chart-2: #7eaea0;
+  --chart-3: #c4a574;
+  --chart-4: #c4847c;
+  --chart-5: #7a96a4;
+}
+
+.dark,
+:root.dark,
+html.dark,
+body.dark,
+[data-theme='dark'],
+html[data-theme='dark'] {
+  --background: #121614;
+  --surface: #1a201c;
+  --surface-secondary: #222a26;
+  --surface-elevated: #24302b;
+
+  --sidebar: #161c19;
+  --sidebar-hover: rgba(255, 255, 255, 0.05);
+  --sidebar-text: #eef3f0;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-active: rgba(126, 174, 160, 0.18);
+
+  --primary: #7eaea0;
+  --primary-hover: #93c0b2;
+  --primary-foreground: #10211c;
+
+  --secondary: #6f9b8c;
+  --secondary-hover: #84b0a2;
+  --secondary-foreground: #10211c;
+
+  --accent: #7eaea0;
+  --accent-surface: #1c2c27;
+
+  --text-primary: #eef1ec;
+  --text-secondary: #b4bbb5;
+  --text-muted: #7f8882;
+
+  --border: #33403a;
+  --border-strong: #496057;
+
+  --success: #86b094;
+  --success-surface: #16231b;
+
+  --warning: #c8ab74;
+  --warning-surface: #261f14;
+
+  --error: #d08a84;
+  --error-surface: #2a1817;
+
+  --info: #8aa3b0;
+  --info-surface: #162026;
+
+  --card-bg: #1c2420;
+  --card-border: #3a4b44;
+  --input-bg: #1a201c;
+  --input-border: #3a4b44;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 18px -14px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 10px 28px -16px rgba(0, 0, 0, 0.62);
+  --shadow-lg: 0 24px 48px -22px rgba(0, 0, 0, 0.72);
+  --overlay: rgba(6, 8, 7, 0.62);
+  --ring: rgba(126, 174, 160, 0.4);
+  --disabled: #5a635c;
+  --disabled-surface: #1c211e;
+  --elevation-1: var(--shadow-xs);
+  --elevation-2: var(--shadow-sm);
+  --elevation-3: var(--shadow-md);
+  --chart-track: #2a3530;
+  --chart-1: #7eaea0;
+  --chart-2: #2f5d50;
+  --chart-3: #c4a574;
+  --chart-4: #c4847c;
+  --chart-5: #8aa3b0;
+}
+
+@layer base {
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--background);
+    color: var(--text-primary);
+    font-family: var(--font-inter), sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    overscroll-behavior: none;
+  }
+
+  * {
+    outline-color: var(--ring);
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.985);
+  }
+
+  main > :first-child {
+    margin-top: 0 !important;
+  }
+
+  main > :last-child {
+    margin-bottom: 0 !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: padding-box;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes rm-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes rm-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rm-slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes rm-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes rm-chart-draw {
+  from {
+    stroke-dashoffset: 88;
+  }
+}
+
+@keyframes rm-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@layer utilities {
+  .rm-page {
+    animation: rm-fade-up var(--duration-slow) var(--ease-standard);
+  }
+
+  .rm-fade {
+    animation: rm-fade-in var(--duration-base) var(--ease-standard);
+  }
+
+  .rm-panel {
+    animation: rm-scale-in var(--duration-base) var(--ease-standard);
+  }
+
+  .rm-drawer-in {
+    animation: rm-slide-right var(--duration-slow) var(--ease-standard);
+  }
+
+  .field-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .tone-success {
+    border-color: color-mix(in srgb, var(--success) 25%, transparent);
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+    color: var(--success);
+  }
+
+  .tone-warning {
+    border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    color: var(--warning);
+  }
+
+  .tone-info {
+    border-color: color-mix(in srgb, var(--info) 25%, transparent);
+    background: color-mix(in srgb, var(--info) 10%, transparent);
+    color: var(--info);
+  }
+
+  .tone-danger {
+    border-color: color-mix(in srgb, var(--error) 25%, transparent);
+    background: color-mix(in srgb, var(--error) 10%, transparent);
+    color: var(--error);
+  }
+
+  .tone-brand {
+    border-color: color-mix(in srgb, var(--primary) 25%, transparent);
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    color: var(--primary);
+  }
+
+  .tone-neutral {
+    border-color: var(--border);
+    background: color-mix(in srgb, var(--surface-secondary) 60%, transparent);
+    color: var(--text-muted);
+  }
+
+  .panel {
+    border-radius: 0.875rem;
+    border: 1px solid var(--card-border);
+    background: var(--card-bg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .page-heading {
+    font-size: 1.375rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    color: var(--text-primary);
+  }
+
+  .page-description {
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .enterprise-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+  }
+
+  .enterprise-table th {
+    background: color-mix(in srgb, var(--surface-secondary) 70%, transparent);
+    color: var(--text-muted);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .enterprise-table td {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    transition: background-color 150ms var(--ease-standard);
+  }
+
+  .enterprise-table tbody tr:hover td {
+    background: color-mix(in srgb, var(--surface-secondary) 40%, transparent);
+  }
+
+  .page-enter {
+    animation: rm-fade-up 200ms var(--ease-standard);
+  }
+
+  .rm-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 1rem;
+    box-shadow: var(--shadow-xs);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard),
+      transform var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .rm-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .rm-overlay {
+    background: var(--overlay);
+    backdrop-filter: blur(2px);
+  }
+
+  .rm-chart-arc {
+    transform-origin: center;
+    animation: rm-chart-draw 700ms var(--ease-standard) both;
+  }
+
+  .rm-bar {
+    transform-origin: bottom;
+    animation: rm-bar-grow 420ms var(--ease-standard) both;
+  }
+
+  .rm-row {
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .rm-stagger > * {
+    animation: rm-fade-up var(--duration-slow) var(--ease-standard) both;
+  }
+
+  .rm-stagger > *:nth-child(1) { animation-delay: 40ms; }
+  .rm-stagger > *:nth-child(2) { animation-delay: 80ms; }
+  .rm-stagger > *:nth-child(3) { animation-delay: 120ms; }
+  .rm-stagger > *:nth-child(4) { animation-delay: 160ms; }
+  .rm-stagger > *:nth-child(5) { animation-delay: 200ms; }
+  .rm-stagger > *:nth-child(6) { animation-delay: 240ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

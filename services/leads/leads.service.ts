@@ -1,0 +1,1000 @@
+import {
+  LeadsRepository,
+  type LeadRow,
+  type LeadInsert,
+  type LeadUpdate,
+  type LeadFilterOptions,
+  type LeadMetricsSummary,
+} from '@/repositories/leads.repository';
+import { LeadNotesRepository, type HydratedLeadNote } from '@/repositories/lead-notes.repository';
+import { LeadTagsRepository, type LeadTagRow } from '@/repositories/lead-tags.repository';
+import { ImportJobsRepository } from '@/repositories/import-jobs.repository';
+import {
+  leadCreateSchema,
+  leadUpdateSchema,
+  leadBulkActionSchema,
+  type LeadCreateInput,
+  type LeadUpdateInput,
+  type LeadBulkActionInput,
+} from '@/lib/validation';
+import { getClientEnv, isMockDevMode } from '@/lib/env';
+import { normalizePhone, formatDisplayPhone } from '@/lib/telephony/phone';
+import { parseCsv } from '@/lib/csv/parser';
+import {
+  normalizeCsvRows,
+  detectDuplicatesAndDnc,
+  buildDatabaseOperations,
+  type ColumnMappingConfig,
+  type DuplicateStrategy,
+  type CsvPreviewSummary,
+} from '@/lib/csv/importer';
+import { getDevStore } from '@/lib/dev/dev-store';
+import type { Lead, LeadStatus } from '@/types';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json, LeadStatusDb } from '@/lib/supabase/types';
+
+export interface HydratedLeadDetails extends Lead {
+  notesList?: HydratedLeadNote[];
+  tagsList?: LeadTagRow[];
+  dncReason?: string | null;
+  isArchived?: boolean;
+  isDnc?: boolean;
+}
+
+export class LeadsService {
+  private repo: LeadsRepository;
+  private notesRepo: LeadNotesRepository;
+  private tagsRepo: LeadTagsRepository;
+  private importJobsRepo: ImportJobsRepository;
+  private defaultOrgId: string;
+  private isMockDevMode: boolean;
+
+  constructor(private readonly supabase: SupabaseClient<Database>) {
+    this.repo = new LeadsRepository(supabase);
+    this.notesRepo = new LeadNotesRepository(supabase);
+    this.tagsRepo = new LeadTagsRepository(supabase);
+    this.importJobsRepo = new ImportJobsRepository(supabase);
+    const env = getClientEnv();
+    this.defaultOrgId = env.NEXT_PUBLIC_DEFAULT_ORG_ID;
+    this.isMockDevMode = isMockDevMode();
+  }
+
+  /**
+   * Translates database LeadRow into UI domain Lead type.
+   */
+  public toDomain(row: LeadRow, tags: string[] = []): Lead {
+    const statusMap: Record<string, LeadStatus> = {
+      NEW: 'new',
+      CONTACTED: 'connected',
+      ENGAGED: 'qualified',
+      TECHNICAL_EVALUATION: 'qualified',
+      COMMERCIAL_DISCUSSION: 'meeting-booked',
+      new: 'new',
+      queued: 'in-queue',
+      in_progress: 'dialing',
+      contacted: 'connected',
+      qualified: 'qualified',
+      converted: 'meeting-booked',
+      unqualified: 'unreachable',
+      dnc: 'dnc',
+    };
+
+    const fleetSize =
+      typeof row.custom_fields === 'object' && row.custom_fields !== null && 'fleet_size' in row.custom_fields
+        ? String((row.custom_fields as Record<string, unknown>).fleet_size)
+        : '120 Units';
+
+    const leadTags = tags.length > 0 ? tags : [row.city, row.region].filter(Boolean);
+
+    return {
+      id: row.id,
+      name: row.full_name,
+      company: row.company_name,
+      phone: formatDisplayPhone(row.phone_e164 || row.phone),
+      title: row.job_title,
+      email: row.email ?? undefined,
+      timezone: `${row.timezone.split('/')[1]?.replace(/_/g, ' ') ?? 'EST'}`,
+      localTime: '02:45 PM CST',
+      fleetSize,
+      tags: leadTags,
+      status: row.is_dnc ? 'dnc' : statusMap[row.status] ?? 'new',
+      priority: (row.priority as Lead['priority']) || 'medium',
+      campaignId: 'cmp_logistics_outbound',
+      campaignName: 'Logistics Outbound',
+      attempts: 0,
+      maxAttempts: 4,
+      lastOutcome: row.is_dnc ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}` : undefined,
+    };
+  }
+
+  async getLeads(
+    organizationId?: string,
+    options?: LeadFilterOptions
+  ): Promise<{ leads: Lead[]; totalCount: number; metrics: LeadMetricsSummary }> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      let filtered = store.leads.filter((l) => (options?.isArchived ? l.is_archived : !l.is_archived));
+
+      if (options?.search) {
+        const q = options.search.toLowerCase();
+        filtered = filtered.filter(
+          (l) =>
+            l.full_name.toLowerCase().includes(q) ||
+            l.company_name.toLowerCase().includes(q) ||
+            l.phone.includes(q) ||
+            (l.email && l.email.toLowerCase().includes(q))
+        );
+      }
+
+      if (options?.status && options.status !== 'All') {
+        const statusMap: Record<string, string> = {
+          'New': 'new',
+          'In-Queue': 'queued',
+          'Dialing': 'in_progress',
+          'Connected': 'contacted',
+          'Qualified': 'qualified',
+          'Meeting Booked': 'converted',
+          'Unreachable': 'unqualified',
+          'DNC': 'dnc',
+        };
+        const mappedStatus = statusMap[options.status] || options.status.toLowerCase();
+        if (mappedStatus === 'dnc') {
+          filtered = filtered.filter((l) => l.is_dnc);
+        } else {
+          filtered = filtered.filter((l) => l.status === mappedStatus);
+        }
+      }
+
+      if (options?.priority) {
+        filtered = filtered.filter((l) => l.priority === options.priority);
+      }
+      if (options?.isDnc !== undefined) {
+        filtered = filtered.filter((l) => l.is_dnc === options.isDnc);
+      }
+      if (options?.source && options.source !== 'All') {
+        filtered = filtered.filter((l) => l.source === options.source);
+      }
+
+      const totalCount = filtered.length;
+      const offset = options?.offset ?? 0;
+      const limit = options?.limit ?? 25;
+      const paged = filtered.slice(offset, offset + limit);
+
+      const domainLeads = paged.map((r) => {
+        const tags = (store.tags[r.id] || []).map((t) => t.name);
+        return this.toDomain(r, tags);
+      });
+
+      const unarchived = store.leads.filter((l) => !l.is_archived);
+      const metrics: LeadMetricsSummary = {
+        totalLeads: unarchived.length,
+        contacted: unarchived.filter((l) => ['contacted', 'qualified', 'converted'].includes(l.status)).length,
+        qualified: unarchived.filter((l) => l.status === 'qualified').length,
+        dncRestricted: unarchived.filter((l) => l.is_dnc).length,
+      };
+
+      return { leads: domainLeads, totalCount, metrics };
+    }
+
+    const [{ leads: rows, totalCount }, metrics] = await Promise.all([
+      this.repo.list(orgId, options),
+      this.repo.getMetrics(orgId),
+    ]);
+
+    const domainLeads = rows.map((r) => this.toDomain(r));
+
+    return {
+      leads: domainLeads,
+      totalCount,
+      metrics,
+    };
+  }
+
+  async getMetrics(organizationId?: string): Promise<LeadMetricsSummary> {
+    const orgId = organizationId ?? this.defaultOrgId;
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const unarchived = store.leads.filter((l) => !l.is_archived);
+      return {
+        totalLeads: unarchived.length,
+        contacted: unarchived.filter((l) => ['contacted', 'qualified', 'converted'].includes(l.status)).length,
+        qualified: unarchived.filter((l) => l.status === 'qualified').length,
+        dncRestricted: unarchived.filter((l) => l.is_dnc).length,
+      };
+    }
+    return this.repo.getMetrics(orgId);
+  }
+
+  async getLeadById(id: string, organizationId?: string): Promise<HydratedLeadDetails | null> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const row = store.leads.find((l) => l.id === id);
+      if (!row) return null;
+      const notesList = store.notes[id] || [];
+      const tagsList = store.tags[id] || [];
+      const domain = this.toDomain(row, tagsList.map((t) => t.name));
+      return {
+        ...domain,
+        notesList,
+        tagsList,
+        dncReason: row.dnc_reason,
+        isArchived: row.is_archived,
+        isDnc: row.is_dnc,
+      };
+    }
+
+    const row = await this.repo.getById(id, orgId);
+    if (!row) return null;
+
+    const [notesList, tagsList] = await Promise.all([
+      this.notesRepo.listByLeadId(id),
+      this.tagsRepo.getTagsForLead(id),
+    ]);
+
+    const tags = tagsList.map((t) => t.name);
+    const domain = this.toDomain(row, tags);
+
+    return {
+      ...domain,
+      notesList,
+      tagsList,
+      dncReason: row.dnc_reason,
+      isArchived: row.is_archived,
+      isDnc: row.is_dnc,
+    };
+  }
+
+  async createLead(input: LeadCreateInput, organizationId?: string, actorId?: string): Promise<Lead> {
+    const validated = leadCreateSchema.parse(input);
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    // Normalization check
+    const phoneNorm = normalizePhone(validated.phone, validated.country);
+    const phoneE164 = phoneNorm.isValid && phoneNorm.e164 ? phoneNorm.e164 : validated.phoneE164;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const newId = `ld_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newRow: LeadRow = {
+        id: newId,
+        organization_id: orgId,
+        name: `${validated.firstName} ${validated.lastName}`.trim(),
+        company: validated.companyName,
+        title: validated.jobTitle ?? '',
+        temperature: 'COLD',
+        do_not_call: validated.isDnc ?? false,
+        deleted_at: null,
+        first_name: validated.firstName,
+        last_name: validated.lastName,
+        full_name: `${validated.firstName} ${validated.lastName}`.trim(),
+        company_name: validated.companyName,
+        job_title: validated.jobTitle ?? '',
+        phone: validated.phone,
+        phone_e164: phoneE164 || validated.phone,
+        email: validated.email ? validated.email.toLowerCase() : null,
+        country: validated.country,
+        region: validated.region ?? '',
+        city: validated.city ?? '',
+        timezone: validated.timezone,
+        source: validated.source,
+        status: validated.status,
+        priority: validated.priority,
+        is_dnc: validated.isDnc,
+        dnc_reason: validated.dncReason ?? null,
+        is_archived: false,
+        archived_at: null,
+        last_contacted_at: null,
+        next_contact_at: null,
+        created_by: actorId ?? null,
+        custom_fields: (validated.customFields || {}) as Json,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      store.leads.unshift(newRow);
+
+      if (validated.note) {
+        store.notes[newId] = [
+          {
+            id: `note_${Date.now()}`,
+            lead_id: newId,
+            author_id: actorId ?? 'usr_operator',
+            content: validated.note,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            author_name: 'Operator',
+            author_avatar: undefined,
+          },
+        ];
+      }
+
+      if (validated.tags && validated.tags.length > 0) {
+        store.tags[newId] = validated.tags.map((t, idx) => ({
+          id: `tag_${Date.now()}_${idx}`,
+          organization_id: orgId,
+          name: t,
+          color: '#0284c7',
+        }));
+      }
+
+      return this.toDomain(newRow, validated.tags || []);
+    }
+
+    const leadInsert: LeadInsert = {
+      organization_id: orgId,
+      first_name: validated.firstName,
+      last_name: validated.lastName,
+      company_name: validated.companyName,
+      job_title: validated.jobTitle,
+      phone: validated.phone,
+      phone_e164: phoneE164 || validated.phone,
+      email: validated.email ? validated.email.toLowerCase() : null,
+      country: validated.country,
+      region: validated.region,
+      city: validated.city,
+      timezone: validated.timezone,
+      source: validated.source,
+      status: validated.status,
+      priority: validated.priority,
+      is_dnc: validated.isDnc,
+      dnc_reason: validated.dncReason,
+      custom_fields: validated.customFields as Json,
+    };
+
+    const row = await this.repo.create(leadInsert);
+
+    // Initial note if provided
+    if (validated.note && actorId) {
+      await this.notesRepo.create({
+        lead_id: row.id,
+        author_id: actorId,
+        content: validated.note,
+      });
+    }
+
+    // Assign initial tags if provided
+    if (validated.tags && validated.tags.length > 0) {
+      for (const tag of validated.tags) {
+        const tagRow = await this.tagsRepo.getOrCreateTag(orgId, tag);
+        await this.tagsRepo.assignTag(row.id, tagRow.id);
+      }
+    }
+
+    // Audit log
+    await this.logAudit(orgId, actorId, 'lead.created', 'lead', row.id, {
+      fullName: row.full_name,
+      phone: row.phone_e164,
+      company: row.company_name,
+    });
+
+    return this.toDomain(row, validated.tags);
+  }
+
+  async updateLead(id: string, input: LeadUpdateInput, organizationId?: string, actorId?: string): Promise<Lead> {
+    const validated = leadUpdateSchema.parse(input);
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const existing = store.leads.find((l) => l.id === id);
+      if (!existing) throw new Error('Lead not found');
+
+      if (validated.firstName) existing.first_name = validated.firstName;
+      if (validated.lastName) existing.last_name = validated.lastName;
+      if (validated.firstName || validated.lastName) {
+        existing.full_name = `${existing.first_name} ${existing.last_name}`.trim();
+      }
+      if (validated.companyName) existing.company_name = validated.companyName;
+      if (validated.jobTitle !== undefined) existing.job_title = validated.jobTitle ?? '';
+      if (validated.email !== undefined) existing.email = validated.email ? validated.email.toLowerCase() : null;
+      if (validated.city !== undefined) existing.city = validated.city ?? '';
+      if (validated.region !== undefined) existing.region = validated.region ?? '';
+      if (validated.country) existing.country = validated.country;
+      if (validated.timezone) existing.timezone = validated.timezone;
+      if (validated.status) existing.status = validated.status;
+      if (validated.priority) existing.priority = validated.priority;
+      if (validated.isDnc !== undefined) {
+        existing.is_dnc = validated.isDnc;
+        if (validated.isDnc) existing.status = 'dnc';
+      }
+      if (validated.dncReason !== undefined) existing.dnc_reason = validated.dncReason;
+      existing.updated_at = new Date().toISOString();
+
+      const tags = (store.tags[id] || []).map((t) => t.name);
+      return this.toDomain(existing, tags);
+    }
+
+    const existing = await this.repo.getById(id, orgId);
+    if (!existing) throw new Error('Lead not found');
+
+    const updatePayload: LeadUpdate = {};
+    if (validated.firstName) updatePayload.first_name = validated.firstName;
+    if (validated.lastName) updatePayload.last_name = validated.lastName;
+    if (validated.companyName) updatePayload.company_name = validated.companyName;
+    if (validated.jobTitle) updatePayload.job_title = validated.jobTitle;
+    if (validated.email !== undefined) updatePayload.email = validated.email ? validated.email.toLowerCase() : null;
+    if (validated.city) updatePayload.city = validated.city;
+    if (validated.region) updatePayload.region = validated.region;
+    if (validated.country) updatePayload.country = validated.country;
+    if (validated.timezone) updatePayload.timezone = validated.timezone;
+    if (validated.status) updatePayload.status = validated.status;
+    if (validated.priority) updatePayload.priority = validated.priority;
+    if (validated.isDnc !== undefined) {
+      updatePayload.is_dnc = validated.isDnc;
+      if (validated.isDnc) updatePayload.status = 'dnc';
+    }
+    if (validated.dncReason !== undefined) updatePayload.dnc_reason = validated.dncReason;
+
+    if (validated.phone) {
+      const phoneNorm = normalizePhone(validated.phone, validated.country ?? existing.country);
+      if (phoneNorm.isValid && phoneNorm.e164) {
+        updatePayload.phone = validated.phone;
+        updatePayload.phone_e164 = phoneNorm.e164;
+      }
+    }
+
+    if (validated.customFields) {
+      updatePayload.custom_fields = {
+        ...(typeof existing.custom_fields === 'object' && existing.custom_fields !== null
+          ? (existing.custom_fields as Record<string, unknown>)
+          : {}),
+        ...validated.customFields,
+      } as Json;
+    }
+
+    const row = await this.repo.update(id, orgId, updatePayload);
+
+    await this.logAudit(orgId, actorId, 'lead.updated', 'lead', id, {
+      changedFields: Object.keys(updatePayload),
+    });
+
+    const tags = await this.tagsRepo.getTagsForLead(id);
+    return this.toDomain(row, tags.map((t) => t.name));
+  }
+
+  async markDnc(id: string, reason: string = 'Customer requested Do-Not-Call', organizationId?: string, actorId?: string): Promise<Lead> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const row = store.leads.find((l) => l.id === id);
+      if (!row) throw new Error('Lead not found');
+      row.is_dnc = true;
+      row.dnc_reason = reason;
+      row.status = 'dnc';
+      row.updated_at = new Date().toISOString();
+      const tags = (store.tags[id] || []).map((t) => t.name);
+      return this.toDomain(row, tags);
+    }
+
+    const row = await this.repo.markDnc(id, orgId, reason);
+
+    await this.logAudit(orgId, actorId, 'lead.dnc_marked', 'lead', id, { reason });
+    return this.toDomain(row);
+  }
+
+  async removeDnc(id: string, organizationId?: string, actorId?: string): Promise<Lead> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const row = store.leads.find((l) => l.id === id);
+      if (!row) throw new Error('Lead not found');
+      row.is_dnc = false;
+      row.dnc_reason = null;
+      row.status = 'new';
+      row.updated_at = new Date().toISOString();
+      const tags = (store.tags[id] || []).map((t) => t.name);
+      return this.toDomain(row, tags);
+    }
+
+    const row = await this.repo.removeDnc(id, orgId);
+
+    await this.logAudit(orgId, actorId, 'lead.dnc_removed', 'lead', id, {});
+    return this.toDomain(row);
+  }
+
+  async archiveLead(id: string, organizationId?: string, actorId?: string): Promise<Lead> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const row = store.leads.find((l) => l.id === id);
+      if (!row) throw new Error('Lead not found');
+      row.is_archived = true;
+      row.archived_at = new Date().toISOString();
+      const tags = (store.tags[id] || []).map((t) => t.name);
+      return this.toDomain(row, tags);
+    }
+
+    const row = await this.repo.archive(id, orgId);
+
+    await this.logAudit(orgId, actorId, 'lead.archived', 'lead', id, {});
+    return this.toDomain(row);
+  }
+
+  async addNote(leadId: string, content: string, authorId: string): Promise<HydratedLeadNote> {
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      if (!store.notes[leadId]) store.notes[leadId] = [];
+      const newNote: HydratedLeadNote = {
+        id: `note_${Date.now()}`,
+        lead_id: leadId,
+        author_id: authorId,
+        content,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        author_name: 'Operator',
+        author_avatar: undefined,
+      };
+      store.notes[leadId].unshift(newNote);
+      return newNote;
+    }
+
+    const row = await this.notesRepo.create({
+      lead_id: leadId,
+      author_id: authorId,
+      content,
+    });
+
+    return {
+      ...row,
+      author_name: 'Operator',
+    };
+  }
+
+  async getNotes(leadId: string): Promise<HydratedLeadNote[]> {
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      return store.notes[leadId] || [];
+    }
+    return this.notesRepo.listByLeadId(leadId);
+  }
+
+  async addTag(leadId: string, tagName: string, color?: string, organizationId?: string): Promise<LeadTagRow> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      if (!store.tags[leadId]) store.tags[leadId] = [];
+      const existing = store.tags[leadId].find((t) => t.name.toLowerCase() === tagName.toLowerCase());
+      if (existing) return existing;
+      const newTag: LeadTagRow = {
+        id: `tag_${Date.now()}`,
+        organization_id: orgId,
+        name: tagName,
+        color: color || '#0284c7',
+      };
+      store.tags[leadId].push(newTag);
+      return newTag;
+    }
+
+    const tag = await this.tagsRepo.getOrCreateTag(orgId, tagName, color);
+    await this.tagsRepo.assignTag(leadId, tag.id);
+    return tag;
+  }
+
+  async removeTag(leadId: string, tagId: string): Promise<void> {
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      if (store.tags[leadId]) {
+        store.tags[leadId] = store.tags[leadId].filter((t) => t.id !== tagId && t.name !== tagId);
+      }
+      return;
+    }
+    await this.tagsRepo.removeTag(leadId, tagId);
+  }
+
+  async executeBulkAction(input: LeadBulkActionInput, organizationId?: string, actorId?: string): Promise<{ affected: number }> {
+    const validated = leadBulkActionSchema.parse(input);
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const targetLeads = store.leads.filter((l) => validated.leadIds.includes(l.id));
+
+      switch (validated.action) {
+        case 'dnc':
+          targetLeads.forEach((l) => {
+            l.is_dnc = true;
+            l.dnc_reason = validated.dncReason ?? 'Bulk DNC Action';
+            l.status = 'dnc';
+          });
+          break;
+        case 'status':
+          if (validated.status) {
+            targetLeads.forEach((l) => {
+              l.status = validated.status as LeadStatusDb;
+            });
+          }
+          break;
+        case 'archive':
+          targetLeads.forEach((l) => {
+            l.is_archived = true;
+            l.archived_at = new Date().toISOString();
+          });
+          break;
+        case 'tag':
+          if (validated.tagName) {
+            targetLeads.forEach((l) => {
+              if (!store.tags[l.id]) store.tags[l.id] = [];
+              if (!store.tags[l.id].some((t) => t.name.toLowerCase() === validated.tagName!.toLowerCase())) {
+                store.tags[l.id].push({
+                  id: `tag_${Date.now()}_${l.id}`,
+                  organization_id: orgId,
+                  name: validated.tagName!,
+                  color: '#0284c7',
+                });
+              }
+            });
+          }
+          break;
+      }
+      return { affected: targetLeads.length };
+    }
+
+    switch (validated.action) {
+      case 'dnc':
+        await this.repo.bulkSetDnc(validated.leadIds, orgId, validated.dncReason ?? 'Bulk DNC Action');
+        break;
+      case 'status':
+        if (validated.status) {
+          await this.repo.bulkUpdateStatus(validated.leadIds, orgId, validated.status as LeadStatusDb);
+        }
+        break;
+      case 'archive':
+        await this.repo.bulkArchive(validated.leadIds, orgId);
+        break;
+      case 'tag':
+        if (validated.tagName) {
+          const tag = await this.tagsRepo.getOrCreateTag(orgId, validated.tagName);
+          await this.tagsRepo.bulkAssignTag(validated.leadIds, tag.id);
+        }
+        break;
+    }
+
+    await this.logAudit(orgId, actorId, `lead.bulk_${validated.action}`, 'leads', null, {
+      count: validated.leadIds.length,
+      leadIds: validated.leadIds.slice(0, 10),
+    });
+
+    return { affected: validated.leadIds.length };
+  }
+
+  /**
+   * Previews CSV ingestion without committing rows to the database.
+   */
+  async previewCsvImport(
+    rawCsvText: string,
+    mappings: ColumnMappingConfig,
+    defaultCountry: string = 'US',
+    organizationId?: string
+  ): Promise<CsvPreviewSummary> {
+    const orgId = organizationId ?? this.defaultOrgId;
+    const parsed = parseCsv(rawCsvText);
+
+    if (parsed.errors.length > 0 && parsed.rows.length === 0) {
+      return {
+        totalRows: 0,
+        readyRows: 0,
+        validRows: 0,
+        invalidRows: 0,
+        duplicateCount: 0,
+        dncCount: 0,
+        warnings: parsed.errors,
+        sampleRows: [],
+        problemRows: [],
+      };
+    }
+
+    const normalized = normalizeCsvRows(parsed.rows, mappings, defaultCountry);
+
+    const phones = normalized.map((r) => r.phoneE164).filter(Boolean);
+    const emails = normalized.map((r) => r.email).filter(Boolean) as string[];
+
+    let existingCandidates: LeadRow[] = [];
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      existingCandidates = store.leads.filter(
+        (l) => (l.phone_e164 && phones.includes(l.phone_e164)) || (l.email && emails.includes(l.email.toLowerCase()))
+      );
+    } else {
+      existingCandidates = await this.repo.findDuplicates(phones, emails, orgId);
+    }
+
+    const { annotatedRows, duplicateCount, dncCount, problemRows } = detectDuplicatesAndDnc(normalized, existingCandidates);
+
+    const validRows = annotatedRows.filter((r) => r.isValid).length;
+    const invalidRows = annotatedRows.length - validRows;
+    const readyRows = Math.max(0, annotatedRows.length - duplicateCount - dncCount - invalidRows);
+
+    return {
+      totalRows: annotatedRows.length,
+      readyRows,
+      validRows,
+      invalidRows,
+      duplicateCount,
+      dncCount,
+      warnings: parsed.errors,
+      sampleRows: annotatedRows.slice(0, 5),
+      problemRows: problemRows.slice(0, 50),
+    };
+  }
+
+  /**
+   * Executes bulk CSV ingestion with chunking, deduplication strategy, and DNC preservation.
+   */
+  async executeCsvImport(
+    rawCsvText: string,
+    mappings: ColumnMappingConfig,
+    strategy: DuplicateStrategy,
+    targetCampaignId?: string,
+    filename: string = 'uploaded_leads.csv',
+    organizationId?: string,
+    actorId?: string
+  ): Promise<{
+    inserted: number;
+    updated: number;
+    skipped: number;
+    invalid: number;
+    dncProtected: number;
+    jobId: string;
+  }> {
+    const orgId = organizationId ?? this.defaultOrgId;
+    const parsed = parseCsv(rawCsvText);
+    const normalized = normalizeCsvRows(parsed.rows, mappings);
+
+    let existingCandidates: LeadRow[] = [];
+    const phones = normalized.map((r) => r.phoneE164).filter(Boolean);
+    const emails = normalized.map((r) => r.email).filter(Boolean) as string[];
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      existingCandidates = store.leads.filter(
+        (l) => (l.phone_e164 && phones.includes(l.phone_e164)) || (l.email && emails.includes(l.email.toLowerCase()))
+      );
+
+      const { annotatedRows, duplicateCount, dncCount } = detectDuplicatesAndDnc(normalized, existingCandidates);
+      const { toInsert, toUpdate, skippedCount } = buildDatabaseOperations(
+        annotatedRows,
+        existingCandidates,
+        strategy,
+        orgId
+      );
+
+      let insertedCount = 0;
+      let updatedCount = 0;
+
+      for (const item of toInsert) {
+        const fullName = `${item.first_name} ${item.last_name}`.trim();
+        const newLead: LeadRow = {
+          id: `ld_import_${Date.now()}_${insertedCount}`,
+          organization_id: orgId,
+          name: fullName,
+          company: item.company_name,
+          title: item.job_title ?? '',
+          temperature: 'COLD',
+          do_not_call: item.is_dnc ?? false,
+          deleted_at: null,
+          first_name: item.first_name,
+          last_name: item.last_name,
+          full_name: fullName,
+          company_name: item.company_name,
+          job_title: item.job_title ?? '',
+          phone: item.phone,
+          phone_e164: item.phone_e164 ?? item.phone,
+          email: item.email ?? null,
+          country: item.country || 'US',
+          region: item.region ?? '',
+          city: item.city ?? '',
+          timezone: item.timezone || 'America/Chicago',
+          source: item.source || 'csv_import',
+          status: item.status || 'new',
+          priority: item.priority || 'medium',
+          is_dnc: item.is_dnc ?? false,
+          dnc_reason: item.dnc_reason ?? null,
+          is_archived: false,
+          archived_at: null,
+          last_contacted_at: null,
+          next_contact_at: null,
+          created_by: actorId ?? null,
+          custom_fields: item.custom_fields ?? {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        store.leads.unshift(newLead);
+        insertedCount++;
+      }
+
+      for (const updateOp of toUpdate) {
+        const target = store.leads.find((l) => l.id === updateOp.id);
+        if (target) {
+          Object.assign(target, updateOp.updates);
+          target.updated_at = new Date().toISOString();
+          updatedCount++;
+        }
+      }
+
+      return {
+        inserted: insertedCount,
+        updated: updatedCount,
+        skipped: skippedCount,
+        invalid: annotatedRows.filter((r) => !r.isValid).length,
+        dncProtected: dncCount,
+        jobId: `job_dev_${Date.now()}`,
+      };
+    }
+
+    // Production Supabase path: Strictly enforce public.import_leads RPC execution.
+    // The RPC internally creates the lead_import_jobs record, executes deduplication,
+    // and returns the canonical job_id and processing metrics.
+    // We do NOT create a separate job prior to the RPC, preventing duplicate job records.
+    const payloadRows = normalized.map((r) => {
+      const fullName =
+        [r.firstName, r.lastName].filter(Boolean).join(' ').trim() ||
+        (r as unknown as { name?: string }).name ||
+        'Unnamed lead';
+      const company = r.companyName || (r as unknown as { company?: string }).company || '';
+      const title = r.jobTitle || (r as unknown as { title?: string }).title || '';
+      const phone = r.phoneE164 || r.phone || '';
+      const email = r.email || '';
+      const city = r.city || '';
+
+      return {
+        name: fullName,
+        company,
+        title,
+        phone,
+        email,
+        city,
+        first_name: r.firstName,
+        last_name: r.lastName,
+        company_name: r.companyName,
+        job_title: r.jobTitle,
+        country: r.country || 'US',
+        region: r.region || null,
+        timezone: r.timezone || 'America/Chicago',
+        custom_fields: r.customFields || {},
+      };
+    });
+
+    const { data: rpcResult, error: rpcError } = await this.supabase.rpc('import_leads', {
+      filename,
+      rows: payloadRows as unknown as Json,
+    });
+
+    if (rpcError) {
+      // TRANSACTION ROLLBACK HANDLING:
+      // The public.import_leads RPC executes within an atomic Postgres transaction.
+      // On error, Postgres rolls back the entire transaction, including any job record
+      // inserted by the RPC. Therefore, no failed job record is persisted in lead_import_jobs.
+      // We log an audit entry for failure visibility and throw the sanitized error.
+      await this.logAudit(orgId, actorId, 'leads.csv_import_failed', 'lead_import_jobs', null, {
+        filename,
+        totalRows: normalized.length,
+        error: rpcError.message,
+        code: rpcError.code,
+        details: rpcError.details,
+        transactionRolledBack: true,
+      });
+
+      throw new Error(`CSV Import failed via public.import_leads RPC: ${rpcError.message}`);
+    }
+
+    if (!rpcResult || typeof rpcResult !== 'object') {
+      await this.logAudit(orgId, actorId, 'leads.csv_import_failed', 'lead_import_jobs', null, {
+        filename,
+        totalRows: normalized.length,
+        error: 'RPC returned invalid or empty response',
+        transactionRolledBack: true,
+      });
+      throw new Error('CSV Import failed: public.import_leads RPC returned an invalid response.');
+    }
+
+    const res = rpcResult as Record<string, unknown>;
+    const jobId = String(res.job_id || res.id || `job_rpc_${Date.now()}`);
+    const inserted = Number(res.inserted ?? res.inserted_count ?? 0);
+    const updated = Number(res.updated ?? res.updated_count ?? 0);
+    const skipped = Number(res.duplicates ?? res.duplicate_count ?? res.skipped ?? res.skipped_count ?? 0);
+    const invalid = Number(res.invalid ?? res.invalid_count ?? 0);
+    const dncProtected = Number(res.dnc_protected ?? res.dncProtected ?? 0);
+
+    // Audit log referencing canonical job_id created by RPC
+    await this.logAudit(orgId, actorId, 'leads.csv_imported', 'lead_import_jobs', jobId, {
+      filename,
+      jobId,
+      totalRows: normalized.length,
+      inserted,
+      updated,
+      skipped,
+      dncProtected,
+      invalid,
+      strategy,
+      method: 'public.import_leads_rpc',
+    });
+
+    return {
+      inserted,
+      updated,
+      skipped,
+      invalid,
+      dncProtected,
+      jobId,
+    };
+  }
+
+  /**
+   * Asserts whether a lead is eligible to receive an outbound phone call.
+   * Throws an Error if the lead is DNC, archived, or missing a valid phone.
+   */
+  async assertLeadCallable(
+    leadId: string,
+    organizationId?: string
+  ): Promise<{ callable: boolean; reason?: string }> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const lead = store.leads.find((l) => l.id === leadId);
+      if (!lead) {
+        throw new Error(`Lead "${leadId}" not found`);
+      }
+      if (lead.is_archived) {
+        throw new Error(`Cannot call ${lead.full_name}: Lead record is archived.`);
+      }
+      if (lead.is_dnc || lead.status === 'dnc') {
+        throw new Error(`Cannot call ${lead.full_name}: Marked as Do Not Call (DNC). Reason: ${lead.dnc_reason || 'Protected'}`);
+      }
+      if (!lead.phone || lead.phone.trim().length < 7) {
+        throw new Error(`Cannot call ${lead.full_name}: Missing or invalid phone number.`);
+      }
+      return { callable: true };
+    }
+
+    const lead = await this.repo.getById(leadId, orgId);
+    if (!lead) {
+      throw new Error(`Lead "${leadId}" not found`);
+    }
+
+    if (lead.is_archived) {
+      throw new Error(`Cannot call ${lead.full_name}: Lead record is archived.`);
+    }
+
+    if (lead.is_dnc || lead.status === 'dnc') {
+      throw new Error(`Cannot call ${lead.full_name}: Marked as Do Not Call (DNC). Reason: ${lead.dnc_reason || 'Protected'}`);
+    }
+
+    if (!lead.phone || lead.phone.trim().length < 7) {
+      throw new Error(`Cannot call ${lead.full_name}: Missing or invalid phone number.`);
+    }
+
+    return { callable: true };
+  }
+
+  private async logAudit(
+    organizationId: string,
+    actorId: string | undefined,
+    action: string,
+    entityType: string,
+    entityId: string | null,
+    metadata: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      await this.supabase.from('audit_logs').insert({
+        organization_id: organizationId,
+        actor_user_id: actorId ?? null,
+        action,
+        entity_type: entityType,
+        entity_id: entityId,
+        metadata: metadata as Json,
+      });
+    } catch (err) {
+      // Audit log failures shouldn't crash the primary transaction
+      console.warn('Audit logging notice:', err);
+    }
+  }
+}

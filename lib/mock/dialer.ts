@@ -1,0 +1,98 @@
+import type { Lead, TranscriptEntry } from '@/types';
+
+export const mockWorkstationLead: Lead = {
+  id: 'lead_alexander_wright',
+  name: 'Alexander Wright',
+  title: 'VP of Operations',
+  company: 'Starlight Logistics Inc.',
+  phone: '+1 (415) 890-2341',
+  email: 'a.wright@starlightlogistics.com',
+  timezone: 'PST (San Francisco)',
+  localTime: '2:14 PM (Active Hours)',
+  fleetSize: '450+ Fleets',
+  tags: ['Supply Chain', 'Tier-1 Target', 'Fleet Ops'],
+  status: 'connected',
+  campaignId: 'cmp_logistics_blast',
+  campaignName: 'Logistics Enterprise Blast',
+  attempts: 2,
+  maxAttempts: 4,
+  buyingIntentScore: 0.89,
+  priorAttemptAudit: 'Yesterday 11:32 AM • Gatekeeper intercepted. Left short message regarding Samsara routing benchmark.',
+};
+
+export const mockUpNextLead = {
+  name: 'Evelyn Vance',
+  title: 'COO @ Apex Freightways',
+  phone: '+1 (206) 555-0199',
+  countdown: 'T-minus 00:30',
+  queuePosition: '#25 of 120',
+};
+
+export const mockDialerTranscript: TranscriptEntry[] = [
+  {
+    id: 't_1',
+    speaker: 'ai',
+    speakerName: 'Rachel (AI Agent)',
+    timestamp: '00:03',
+    timeSeconds: 3,
+    stageBadge: 'Pitch Opener',
+    stageBadgeType: 'opener',
+    text: 'Hi Alexander, this is Rachel calling from RM Logistics Automation. I noticed Starlight recently expanded interstate fleet routes—did I catch you with two minutes?',
+    confidence: 0.99,
+  },
+  {
+    id: 't_2',
+    speaker: 'prospect',
+    speakerName: 'Alexander (Prospect)',
+    timestamp: '00:15',
+    timeSeconds: 15,
+    stageBadge: 'Receptive',
+    stageBadgeType: 'receptive',
+    text: "Hey Rachel. Yeah, we did add 40 tractors last month. We're actually evaluating dispatch routing tools right now.",
+    sentiment: 'positive',
+    sentimentScore: 0.88,
+  },
+  {
+    id: 't_3',
+    speaker: 'ai',
+    speakerName: 'Rachel (AI Agent)',
+    timestamp: '00:26',
+    timeSeconds: 26,
+    stageBadge: 'Value Prop',
+    stageBadgeType: 'value',
+    text: 'That timing is ideal. Our autonomous dispatcher integrates directly into Samsara and cuts idle deadhead miles by 18%. Would Tuesday at 10 AM PST make sense to review a quick 10-minute fleet simulation?',
+    confidence: 0.98,
+  },
+  {
+    id: 't_4',
+    speaker: 'prospect',
+    speakerName: 'Alexander (Prospect)',
+    timestamp: '00:41',
+    timeSeconds: 41,
+    stageBadge: 'Objection / Gate',
+    stageBadgeType: 'objection',
+    text: 'Tuesday could work, but does it support multi-depot hazmat tracking?',
+    sentiment: 'neutral',
+  },
+  {
+    id: 't_5',
+    speaker: 'ai',
+    speakerName: 'Rachel (Thinking & RAG Search)',
+    timestamp: '00:54',
+    timeSeconds: 54,
+    stageBadge: 'Streaming Token In-Flight',
+    stageBadgeType: 'generating',
+    text: 'Yes, Alexander. We natively ingest DOT Hazmat Class 3 through 9 placard manifests directly into Samsara ELD endpoints...',
+    isStreaming: true,
+  },
+];
+
+export const mockLiveIntelligenceState = {
+  confidencePercent: 96.4,
+  currentStage: 'Objection Handling & Validation',
+  prospectIntent: 'High Buying Interest (Active Evaluator)',
+  detectedObjection: 'Multi-depot Hazmat Compliance',
+  factsCaptured: '40 new tractors added, active Samsara ELD user',
+  callGoal: 'Book 15-min Technical Demo',
+  tacticalRecommendation: 'Confirm Hazmat Class 3-9 API support and firmly secure Tuesday 10:00 AM PST on executive calendar.',
+};

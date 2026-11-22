@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@/lib/supabase/server';
+import { CampaignsService } from '@/services/campaigns/campaigns.service';
+import { campaignActionSchema } from '@/lib/validation';
+import { sanitizeError } from '@/lib/errors';
+import { authenticateRequest, isAuthContext } from '@/lib/auth/server';
+import { checkRateLimit, rateLimitExceededResponse } from '@/lib/security/rate-limit';
+
+export const dynamic = 'force-dynamic';
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const rate = await checkRateLimit(req, { limit: 20, windowMs: 60 * 1000, prefix: 'campaign_actions' });
+    if (!rate.allowed) return rateLimitExceededResponse(rate);
+
+    const auth = await authenticateRequest(req, { allowedRoles: ['admin', 'manager'] });
+    if (!isAuthContext(auth)) return auth;
+
+    const { id } = await params;
+    const supabase = await createServerClient();
+    const service = new CampaignsService(supabase);
+
+    const body = await req.json();
+    const { action } = campaignActionSchema.parse(body);
+
+    let updated;
+    switch (action) {
+      case 'start':
+        updated = await service.startCampaign(id, auth.organizationId, auth.user.id);
+        break;
+      case 'pause':
+        updated = await service.pauseCampaign(id, auth.organizationId, auth.user.id);
+        break;
+      case 'resume':
+        updated = await service.resumeCampaign(id, auth.organizationId, auth.user.id);
+        break;
+      case 'complete':
+        updated = await service.completeCampaign(id, auth.organizationId, auth.user.id);
+        break;
+      case 'cancel':
+        updated = await service.cancelCampaign(id, auth.organizationId, auth.user.id);
+        break;
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Campaign successfully transitioned to ${action}ed state`,
+      data: updated,
+    });
+  } catch (error: unknown) {
+    const err = sanitizeError(error);
+    return NextResponse.json({ success: false, error: err.message }, { status: err.statusCode });
+  }
+}

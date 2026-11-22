@@ -1,0 +1,188 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/supabase/types';
+
+export type AgentRow = Database['public']['Tables']['ai_agents']['Row'];
+export type AgentInsert = Database['public']['Tables']['ai_agents']['Insert'];
+export type AgentUpdate = Database['public']['Tables']['ai_agents']['Update'];
+
+export type AgentVersionRow = Database['public']['Tables']['ai_agent_versions']['Row'];
+export type AgentVersionInsert = Database['public']['Tables']['ai_agent_versions']['Insert'];
+export type AgentVersionUpdate = Database['public']['Tables']['ai_agent_versions']['Update'];
+
+export type AgentKnowledgeRow = Database['public']['Tables']['ai_agent_knowledge']['Row'];
+export type AgentKnowledgeInsert = Database['public']['Tables']['ai_agent_knowledge']['Insert'];
+export type AgentKnowledgeUpdate = Database['public']['Tables']['ai_agent_knowledge']['Update'];
+
+export type AgentSimulationRow = Database['public']['Tables']['ai_agent_simulations']['Row'];
+export type AgentSimulationInsert = Database['public']['Tables']['ai_agent_simulations']['Insert'];
+
+export class AgentsRepository {
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
+
+  async list(orgId: string): Promise<AgentRow[]> {
+    const { data, error } = await this.supabase
+      .from('ai_agents')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data as AgentRow[]) ?? [];
+  }
+
+  async getById(id: string, orgId?: string): Promise<AgentRow | null> {
+    let query = this.supabase.from('ai_agents').select('*').eq('id', id);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query.maybeSingle();
+    if (error) throw error;
+    return (data as AgentRow | null) ?? null;
+  }
+
+  async create(input: AgentInsert): Promise<AgentRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agents')
+      .insert(input)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentRow;
+  }
+
+  async update(id: string, orgId: string, input: AgentUpdate): Promise<AgentRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agents')
+      .update({
+        ...input,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('organization_id', orgId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentRow;
+  }
+
+  async getActiveVersion(
+    versionId: string | null | undefined
+  ): Promise<AgentVersionRow | null> {
+    if (!versionId) return null;
+    const { data, error } = await this.supabase
+      .from('ai_agent_versions')
+      .select('*')
+      .eq('id', versionId)
+      .maybeSingle();
+    if (error) throw error;
+    return (data as AgentVersionRow | null) ?? null;
+  }
+
+  async getVersions(agentId: string): Promise<AgentVersionRow[]> {
+    const { data, error } = await this.supabase
+      .from('ai_agent_versions')
+      .select('*')
+      .eq('agent_id', agentId)
+      .order('version_number', { ascending: false });
+    if (error) throw error;
+    return (data as AgentVersionRow[]) ?? [];
+  }
+
+  async createVersion(input: AgentVersionInsert): Promise<AgentVersionRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agent_versions')
+      .insert(input)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentVersionRow;
+  }
+
+  async listKnowledge(
+    agentId: string,
+    orgId?: string
+  ): Promise<AgentKnowledgeRow[]> {
+    let query = this.supabase
+      .from('ai_agent_knowledge')
+      .select('*')
+      .eq('agent_id', agentId);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data as AgentKnowledgeRow[]) ?? [];
+  }
+
+  async addKnowledge(input: AgentKnowledgeInsert): Promise<AgentKnowledgeRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agent_knowledge')
+      .insert(input)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentKnowledgeRow;
+  }
+
+  async updateKnowledge(
+    id: string,
+    orgId: string,
+    input: AgentKnowledgeUpdate
+  ): Promise<AgentKnowledgeRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agent_knowledge')
+      .update({
+        ...input,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('organization_id', orgId)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentKnowledgeRow;
+  }
+
+  async deleteKnowledge(id: string, orgId: string): Promise<boolean> {
+    const { error } = await this.supabase
+      .from('ai_agent_knowledge')
+      .delete()
+      .eq('id', id)
+      .eq('organization_id', orgId);
+    if (error) throw error;
+    return true;
+  }
+
+  async getSimulations(
+    agentId: string,
+    orgId?: string,
+    limit: number = 20
+  ): Promise<AgentSimulationRow[]> {
+    let query = this.supabase
+      .from('ai_agent_simulations')
+      .select('*')
+      .eq('agent_id', agentId);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    query = query.order('created_at', { ascending: false }).limit(limit);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data as AgentSimulationRow[]) ?? [];
+  }
+
+  async recordSimulation(
+    input: AgentSimulationInsert
+  ): Promise<AgentSimulationRow> {
+    const { data, error } = await this.supabase
+      .from('ai_agent_simulations')
+      .insert(input)
+      .select()
+      .single();
+    if (error) throw error;
+    return data as AgentSimulationRow;
+  }
+}
+
