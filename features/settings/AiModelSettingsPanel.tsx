@@ -42,8 +42,9 @@ export function AiModelSettingsPanel() {
               onChange={(e) => setLlmProvider(e.target.value)}
               className="px-3.5 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-on-surface focus:outline-none focus:border-primary"
             >
-              <option value="claude-3-5-sonnet-20241022">Anthropic Claude 3.5 Sonnet (Recommended for Enterprise Sales)</option>
-              <option value="claude-3-5-haiku-20241022">Anthropic Claude 3.5 Haiku (Fast Triage &amp; High Volume)</option>
+              <option value="claude-sonnet-4-6">Anthropic Claude Sonnet 4.6 (Recommended for Enterprise Sales)</option>
+              <option value="claude-haiku-5-5">Anthropic Claude Haiku 5.5 (Fast Triage &amp; High Volume)</option>
+              <option value="claude-3-5-sonnet-20241022">Anthropic Claude 3.5 Sonnet (Legacy)</option>
               <option value="gpt-4o">OpenAI GPT-4o (Fallback Multi-modal)</option>
             </select>
           </div>

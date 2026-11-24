@@ -31,9 +31,9 @@ export class AnthropicLLMProvider implements ILLMProvider {
   private get model(): string {
     try {
       const env = getServerEnv();
-      return env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+      return env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
     } catch {
-      return 'claude-3-5-sonnet-20241022';
+      return 'claude-sonnet-4-6';
     }
   }
 

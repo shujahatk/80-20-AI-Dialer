@@ -12,7 +12,7 @@ export function createAnthropicJsonClient(): ClaudeJsonClient {
       }
       const client = new Anthropic({ apiKey: key });
       const message = await client.messages.create({
-        model: env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022',
+        model: env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
         max_tokens: 900,
         temperature: 0,
         system,

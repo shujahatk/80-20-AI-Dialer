@@ -41,7 +41,7 @@ const serverEnvSchema = clientEnvSchema.extend({
   RESEND_WEBHOOK_SECRET: z.string().optional().default(''),
   EMAIL_UNSUBSCRIBE_SECRET: z.string().optional().default(''),
   ANTHROPIC_API_KEY: z.string().optional().default(''),
-  ANTHROPIC_MODEL: z.string().optional().default('claude-3-5-sonnet-20241022'),
+  ANTHROPIC_MODEL: z.string().optional().default('claude-sonnet-4-6'),
 });
 
 export type AiVoiceRuntime = 'legacy' | 'retell';
@@ -226,6 +226,8 @@ export function getServerEnv() {
     RESEND_REPLY_TO: process.env.RESEND_REPLY_TO || '',
     RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET || '',
     EMAIL_UNSUBSCRIBE_SECRET: process.env.EMAIL_UNSUBSCRIBE_SECRET || '',
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
   });
 
   if (!result.success) {
@@ -279,20 +281,23 @@ export function auditProviderConfiguration(): ProviderAuditResult {
     Boolean(env.RESEND_FROM_EMAIL) &&
     env.RESEND_FROM_EMAIL.includes('@');
 
+  const anthropicConfigured =
+    Boolean(env.ANTHROPIC_API_KEY) && !isPlaceholder(env.ANTHROPIC_API_KEY);
+
   return {
     mode,
     aiVoiceRuntime: runtime,
     supabase: supabaseConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
     twilio: twilioConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
     elevenlabs: elevenlabsConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
-    anthropic: 'Missing',
+    anthropic: anthropicConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
     retell: retellConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
     resend: resendConfigured ? 'Configured' : mode === 'live' ? 'Missing' : 'Untested',
     details: {
       supabaseUrlConfigured: supabaseConfigured,
       twilioSidConfigured: twilioConfigured,
       elevenlabsKeyConfigured: elevenlabsConfigured,
-      anthropicKeyConfigured: false,
+      anthropicKeyConfigured: anthropicConfigured,
       retellKeyConfigured: retellConfigured,
       retellWebhookSecretConfigured: retellWebhookConfigured,
       resendConfigured,
