@@ -61,8 +61,16 @@ export async function updateSession(request: NextRequest) {
   let user = null;
   if (!mockDevMode) {
     try {
-      const { data } = await supabase.auth.getUser();
-      user = data.user;
+      const authHeader = request.headers.get('authorization');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const jwt = authHeader.slice(7).trim();
+        const { data: jwtData } = await supabase.auth.getUser(jwt);
+        user = jwtData?.user || null;
+      }
+      if (!user) {
+        const { data } = await supabase.auth.getUser();
+        user = data.user;
+      }
     } catch {
       user = null;
     }
