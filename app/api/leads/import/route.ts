@@ -18,15 +18,36 @@ export async function POST(req: NextRequest) {
     const service = new LeadsService(supabase);
 
     const body = await req.json();
-    const { action, csvContent, mappings, strategy, targetCampaignId, filename, defaultCountry } = body as {
-      action: 'preview' | 'execute';
-      csvContent: string;
-      mappings: ColumnMappingConfig;
+    const { action, csvContent, mappings, strategy, targetCampaignId, filename, defaultCountry, jobId } = body as {
+      action: 'preview' | 'execute' | 'resume';
+      csvContent?: string;
+      mappings?: ColumnMappingConfig;
       strategy?: DuplicateStrategy;
       targetCampaignId?: string;
       filename?: string;
       defaultCountry?: string;
+      jobId?: string;
     };
+
+    if (action === 'resume') {
+      if (!jobId || !targetCampaignId) {
+        return NextResponse.json(
+          { success: false, error: 'jobId and targetCampaignId are required to resume enrollment' },
+          { status: 400 }
+        );
+      }
+      const resumeResult = await service.resumeCampaignEnrollment(
+        jobId,
+        targetCampaignId,
+        auth.organizationId,
+        auth.user.id
+      );
+      return NextResponse.json({
+        success: true,
+        message: `Campaign enrollment resumed: ${resumeResult.enrolled} enrolled into campaign`,
+        data: resumeResult,
+      });
+    }
 
     if (!csvContent || typeof csvContent !== 'string') {
       return NextResponse.json({ success: false, error: 'CSV content is required' }, { status: 400 });
@@ -57,9 +78,15 @@ export async function POST(req: NextRequest) {
         auth.user.id
       );
 
+      const isPartial = result.status === 'partial_success';
+      const message = isPartial
+        ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
+        : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
+
       return NextResponse.json({
         success: true,
-        message: `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`,
+        partialSuccess: isPartial,
+        message,
         data: result,
       });
     }

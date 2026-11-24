@@ -1406,42 +1406,60 @@ export interface Database {
           organization_id: string;
           lead_id: string;
           call_id: string | null;
+          call_session_id?: string | null;
           campaign_id: string | null;
           owner_id: string | null;
+          assigned_to?: string | null;
           scheduled_for: string;
+          scheduled_at?: string;
           timezone: string;
           reason: string;
           notes: string | null;
           status: CallbackStatusDb;
+          priority?: LeadPriorityDb;
+          completed_at?: string | null;
           created_at: string;
+          updated_at?: string;
         };
         Insert: {
           id?: string;
           organization_id: string;
           lead_id: string;
           call_id?: string | null;
+          call_session_id?: string | null;
           campaign_id?: string | null;
           owner_id?: string | null;
+          assigned_to?: string | null;
           scheduled_for: string;
+          scheduled_at?: string;
           timezone?: string;
-          reason: string;
+          reason?: string;
           notes?: string | null;
           status?: CallbackStatusDb;
+          priority?: LeadPriorityDb;
+          completed_at?: string | null;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           id?: string;
           organization_id?: string;
           lead_id?: string;
           call_id?: string | null;
+          call_session_id?: string | null;
           campaign_id?: string | null;
           owner_id?: string | null;
+          assigned_to?: string | null;
           scheduled_for?: string;
+          scheduled_at?: string;
           timezone?: string;
           reason?: string;
           notes?: string | null;
           status?: CallbackStatusDb;
+          priority?: LeadPriorityDb;
+          completed_at?: string | null;
           created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -2048,6 +2066,45 @@ export interface Database {
         };
         Relationships: [];
       };
+      email_templates: {
+        Row: {
+          id: string;
+          organization_id: string;
+          campaign_id: string | null;
+          name: string;
+          subject: string;
+          body_html: string;
+          body_text: string;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          campaign_id?: string | null;
+          name: string;
+          subject: string;
+          body_html: string;
+          body_text: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          campaign_id?: string | null;
+          name?: string;
+          subject?: string;
+          body_html?: string;
+          body_text?: string;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -2111,6 +2168,23 @@ export interface Database {
           remaining: number;
           reset_ms: number;
         }[];
+      };
+      enroll_leads_in_campaign: {
+        Args: {
+          p_campaign_id: string;
+          p_lead_ids: string[];
+          p_actor_id?: string | null;
+        };
+        Returns: {
+          campaign_id: string;
+          enrolled_count: number;
+          skipped_duplicate: number;
+          skipped_dnc: number;
+          skipped_invalid: number;
+          skipped_capacity: number;
+          total_enrolled_now: number;
+          enrolled_ids: string[];
+        };
       };
     };
     Enums: {

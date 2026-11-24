@@ -30,6 +30,7 @@ export interface CampaignEnrollmentResult {
   dncProtected: number;
   invalid: number;
   alreadyAdded: number;
+  skippedCapacity: number;
   totalProcessed: number;
 }
 
@@ -242,6 +243,15 @@ export class CampaignsService {
       await this.assertAgentEligibleForCampaign(validated.aiAgentId, orgId);
     }
 
+    if (validated.status === 'running') {
+      const activeCampaign = await this.repo.findActiveCampaign(orgId);
+      if (activeCampaign) {
+        throw new Error(
+          `Cannot create active campaign "${validated.name}": Another campaign ("${activeCampaign.name}", ID: ${activeCampaign.id}) is already active. Only one active campaign is permitted at a time.`
+        );
+      }
+    }
+
     const campaignInsert: CampaignInsert = {
       organization_id: orgId,
       name: validated.name,
@@ -346,6 +356,12 @@ export class CampaignsService {
     }
 
     if (targetStatus === 'running') {
+      const activeCampaign = await this.repo.findActiveCampaign(orgId, id);
+      if (activeCampaign) {
+        throw new Error(
+          `Cannot start campaign "${campaign.name}": Another campaign ("${activeCampaign.name}", ID: ${activeCampaign.id}) is already active. Only one active campaign is permitted at a time.`
+        );
+      }
       const progress = await this.repo.getProgress(id);
       if (progress.totalLeads === 0) {
         throw new Error('Cannot start campaign: No leads have been enrolled. Please assign leads first.');
@@ -483,6 +499,28 @@ export class CampaignsService {
       throw new Error(`Cannot add leads to campaign in terminal state "${campaign.status}".`);
     }
 
+    if (leadIds.length === 0) {
+      return {
+        added: 0,
+        skipped: 0,
+        dncProtected: 0,
+        invalid: 0,
+        alreadyAdded: 0,
+        skippedCapacity: 0,
+        totalProcessed: 0,
+      };
+    }
+
+    // 1. Enforce 100-lead maximum campaign capacity limit
+    const currentEnrolledCount = await this.repo.getEnrolledCount(campaignId);
+    if (currentEnrolledCount >= 100) {
+      throw new Error(
+        `Cannot enroll leads: Campaign "${campaign.name}" has reached its maximum capacity of 100 leads (Current: ${currentEnrolledCount}).`
+      );
+    }
+
+    const availableSlots = Math.max(0, 100 - currentEnrolledCount);
+
     let validLeadIdsToAdd: string[] = [];
     let skipped = 0;
     let dncProtected = 0;
@@ -516,6 +554,50 @@ export class CampaignsService {
         validLeadIdsToAdd.push(id);
       }
     } else {
+      // First attempt the atomic database RPC if available
+      try {
+        const { data: rpcData, error: rpcError } = await this.supabase.rpc('enroll_leads_in_campaign', {
+          p_campaign_id: campaignId,
+          p_lead_ids: leadIds,
+          p_actor_id: actorId || null,
+        } as any);
+
+        if (!rpcError && rpcData && typeof rpcData === 'object') {
+          const res = rpcData as Record<string, unknown>;
+          const added = Number(res.enrolled_count ?? 0);
+          const skippedDuplicate = Number(res.skipped_duplicate ?? 0);
+          const skippedDnc = Number(res.skipped_dnc ?? 0);
+          const skippedInvalid = Number(res.skipped_invalid ?? 0);
+          const skippedCapacity = Number(res.skipped_capacity ?? 0);
+
+          await this.logEvent(campaignId, orgId, 'campaign.leads_enrolled', {
+            added,
+            dncProtected: skippedDnc,
+            invalid: skippedInvalid,
+            alreadyAdded: skippedDuplicate,
+            skippedCapacity,
+          }, actorId);
+
+          await this.logAudit(orgId, actorId, 'campaign.leads_enrolled', 'campaign', campaignId, {
+            count: added,
+            dncProtected: skippedDnc,
+            skippedCapacity,
+          });
+
+          return {
+            added,
+            skipped: skippedDuplicate + skippedInvalid,
+            dncProtected: skippedDnc,
+            invalid: skippedInvalid,
+            alreadyAdded: skippedDuplicate,
+            skippedCapacity,
+            totalProcessed: leadIds.length,
+          };
+        }
+      } catch {
+        // Fall back to TypeScript query logic
+      }
+
       const { data: leads } = await this.supabase
         .from('leads')
         .select('id, name, do_not_call, status, deleted_at, phone')
@@ -552,18 +634,24 @@ export class CampaignsService {
       }
     }
 
-    const added = await this.repo.addLeads(campaignId, validLeadIdsToAdd, orgId, actorId);
+    // Apply 100-lead capacity slice
+    const toEnroll = validLeadIdsToAdd.slice(0, availableSlots);
+    const skippedCapacity = validLeadIdsToAdd.length - toEnroll.length;
+
+    const added = await this.repo.addLeads(campaignId, toEnroll, orgId, actorId);
 
     await this.logEvent(campaignId, orgId, 'campaign.leads_enrolled', {
       added,
       dncProtected,
       invalid,
       alreadyAdded,
+      skippedCapacity,
     }, actorId);
 
     await this.logAudit(orgId, actorId, 'campaign.leads_enrolled', 'campaign', campaignId, {
       count: added,
       dncProtected,
+      skippedCapacity,
     });
 
     return {
@@ -572,6 +660,7 @@ export class CampaignsService {
       dncProtected,
       invalid,
       alreadyAdded,
+      skippedCapacity,
       totalProcessed: leadIds.length,
     };
   }

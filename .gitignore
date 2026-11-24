@@ -36,6 +36,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# test data & lead csvs
+*.csv
+
 # vercel
 .vercel
 

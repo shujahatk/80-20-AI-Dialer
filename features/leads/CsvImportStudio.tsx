@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/lib/ui/icons';
@@ -26,6 +26,21 @@ interface ImportResultData {
   existingDuplicates?: number;
   problemRows?: ImportProblemRow[];
   errorCsv?: string | null;
+  status?: 'completed' | 'partial_success' | 'failed';
+  leadImportStatus?: 'completed' | 'failed' | 'empty';
+  campaignEnrollmentStatus?: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity';
+  campaignEnrollment?: {
+    campaignId: string;
+    campaignName: string;
+    enrolled: number;
+    skippedCapacity: number;
+    alreadyEnrolled: number;
+    dncProtected: number;
+    invalid: number;
+    error?: string | null;
+  };
+  importedLeadIds?: string[];
+  recoveryGuidance?: string | null;
 }
 
 const SAMPLE_CSV = `Full Name,Work Phone,Organisation,Role,Direct Email,City,Country
@@ -49,8 +64,25 @@ export const CsvImportStudio: React.FC = () => {
   const [showIssuesReview, setShowIssuesReview] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [campaigns, setCampaigns] = useState<Array<{ id: string; name: string; status: string; leadCount: number }>>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    async function loadCampaigns() {
+      try {
+        const res = await fetch('/api/campaigns?status=active');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data?.campaigns)) {
+          setCampaigns(data.data.campaigns);
+        }
+      } catch {
+        // Mock / offline fallback
+      }
+    }
+    loadCampaigns();
+  }, []);
 
   const handleDownloadCsv = (csvData: string, filePrefix: string = 'import_issues') => {
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
@@ -101,10 +133,10 @@ export const CsvImportStudio: React.FC = () => {
       prev.map((m) =>
         m.csvHeader === csvHeader
           ? {
-              ...m,
-              systemField: newField,
-              statusLabel: newField === 'do_not_map' ? 'Ignore' : 'Matched',
-            }
+            ...m,
+            systemField: newField,
+            statusLabel: newField === 'do_not_map' ? 'Ignore' : 'Matched',
+          }
           : m
       )
     );
@@ -163,6 +195,7 @@ export const CsvImportStudio: React.FC = () => {
           mappings: mappingConfig,
           strategy: dedupStrat,
           filename: filename || 'leads_import.csv',
+          targetCampaignId: selectedCampaignId || undefined,
         }),
       });
 
@@ -231,20 +264,18 @@ export const CsvImportStudio: React.FC = () => {
           ].map((item) => (
             <div
               key={item.s}
-              className={`py-3 px-4 flex items-center justify-center gap-2 border-r last:border-r-0 border-border transition-colors ${
-                step === item.s
-                  ? 'bg-primary text-primary-foreground font-bold'
-                  : step > item.s
+              className={`py-3 px-4 flex items-center justify-center gap-2 border-r last:border-r-0 border-border transition-colors ${step === item.s
+                ? 'bg-primary text-primary-foreground font-bold'
+                : step > item.s
                   ? 'bg-surface-secondary text-on-surface'
                   : 'text-on-surface-variant'
-              }`}
+                }`}
             >
               <span
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
-                  step === item.s
-                    ? 'bg-primary-foreground text-primary'
-                    : 'bg-surface text-on-surface border border-border'
-                }`}
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${step === item.s
+                  ? 'bg-primary-foreground text-primary'
+                  : 'bg-surface text-on-surface border border-border'
+                  }`}
               >
                 {step > item.s ? '✓' : item.s}
               </span>
@@ -358,11 +389,10 @@ export const CsvImportStudio: React.FC = () => {
                       <td className="py-3 px-3">
                         {m.systemField !== 'do_not_map' ? (
                           <span
-                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded ${
-                              m.confidence >= 80
-                                ? 'bg-success/15 text-success border border-success/30'
-                                : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
-                            }`}
+                            className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded ${m.confidence >= 80
+                              ? 'bg-success/15 text-success border border-success/30'
+                              : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                              }`}
                           >
                             <Icon name={m.confidence >= 80 ? 'check' : 'help_outline'} size={14} />
                             {m.confidence >= 80 ? 'Matched' : 'Manual Review'} ({m.confidence}%)
@@ -478,15 +508,14 @@ export const CsvImportStudio: React.FC = () => {
                             <td className="py-1.5 px-2 text-on-surface-variant font-mono">{prob.phone}</td>
                             <td className="py-1.5 px-2">
                               <span
-                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                                  prob.issueType === 'dnc_protected'
-                                    ? 'bg-error/15 text-error'
-                                    : prob.issueType === 'invalid_data'
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium ${prob.issueType === 'dnc_protected'
+                                  ? 'bg-error/15 text-error'
+                                  : prob.issueType === 'invalid_data'
                                     ? 'bg-error/15 text-error'
                                     : prob.issueType === 'duplicate_csv'
-                                    ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                                    : 'bg-surface-secondary text-on-surface'
-                                }`}
+                                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                      : 'bg-surface-secondary text-on-surface'
+                                  }`}
                               >
                                 {prob.issue}
                               </span>
@@ -516,6 +545,42 @@ export const CsvImportStudio: React.FC = () => {
               </div>
             )}
 
+            {/* Target Campaign Enrollment Option */}
+            <div className="p-4 rounded-lg bg-surface-elevated border border-border flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-on-surface">Target Campaign Enrollment (Optional)</h4>
+                  <p className="text-xs text-on-surface-variant">
+                    Automatically enroll imported leads into a campaign. Max 100 leads per campaign.
+                  </p>
+                </div>
+                {selectedCampaignId && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCampaignId('')}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Clear selection
+                  </button>
+                )}
+              </div>
+              <select
+                value={selectedCampaignId}
+                onChange={(e) => setSelectedCampaignId(e.target.value)}
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">-- Do not assign to a campaign (CRM only) --</option>
+                {campaigns.map((c) => {
+                  const isFull = (c.leadCount ?? 0) >= 100;
+                  return (
+                    <option key={c.id} value={c.id} disabled={isFull}>
+                      {c.name} ({c.leadCount ?? 0}/100 leads){isFull ? ' - [FULL]' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
             {/* Duplicate Strategy Option */}
             <div className="p-4 rounded-lg bg-surface-elevated border border-border flex flex-col gap-3">
               <h4 className="text-sm font-bold text-on-surface">Duplicate Handling Rule</h4>
@@ -527,11 +592,10 @@ export const CsvImportStudio: React.FC = () => {
                 ].map((strat) => (
                   <label
                     key={strat.id}
-                    className={`p-3 rounded-lg border cursor-pointer flex flex-col gap-1 transition-colors ${
-                      dedupStrat === strat.id
-                        ? 'border-primary bg-primary/10 text-on-surface'
-                        : 'border-border text-on-surface-variant hover:bg-surface-secondary'
-                    }`}
+                    className={`p-3 rounded-lg border cursor-pointer flex flex-col gap-1 transition-colors ${dedupStrat === strat.id
+                      ? 'border-primary bg-primary/10 text-on-surface'
+                      : 'border-border text-on-surface-variant hover:bg-surface-secondary'
+                      }`}
                   >
                     <input
                       type="radio"
@@ -570,13 +634,28 @@ export const CsvImportStudio: React.FC = () => {
         {/* Step 4: Complete */}
         {step === 4 && importResult && (
           <div className="bg-surface rounded-xl border border-border p-8 flex flex-col items-center text-center gap-6">
-            <div className="w-16 h-16 rounded-full bg-success/20 text-success flex items-center justify-center">
-              <Icon name="check_circle" size={40} />
+            <div
+              className={`w-16 h-16 rounded-full flex items-center justify-center ${
+                importResult.status === 'partial_success'
+                  ? 'bg-amber-500/20 text-amber-500'
+                  : 'bg-success/20 text-success'
+              }`}
+            >
+              <Icon
+                name={importResult.status === 'partial_success' ? 'warning' : 'check_circle'}
+                size={40}
+              />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-on-surface">Import Completed Successfully</h2>
+              <h2 className="text-2xl font-bold text-on-surface">
+                {importResult.status === 'partial_success'
+                  ? 'Import Completed with Partial Enrollment'
+                  : 'Import Completed Successfully'}
+              </h2>
               <p className="text-sm text-on-surface-variant mt-1">
-                Your lead batch has been ingested and queued for campaign dialer routing.
+                {importResult.status === 'partial_success'
+                  ? 'Your leads have been safely stored in CRM, but campaign enrollment was incomplete.'
+                  : 'Your lead batch has been ingested and queued for campaign dialer routing.'}
               </p>
               {importResult.jobId && (
                 <div className="mt-2">
@@ -586,6 +665,25 @@ export const CsvImportStudio: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {importResult.status === 'partial_success' && (
+              <div className="w-full max-w-3xl p-4 rounded-lg bg-amber-500/10 border border-amber-500/40 text-left flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-sm">
+                  <Icon name="warning" size={18} />
+                  <span>Notice: Campaign Enrollment Incomplete</span>
+                </div>
+                <p className="text-xs text-on-surface-variant">
+                  {importResult.campaignEnrollment?.error ||
+                    importResult.recoveryGuidance ||
+                    'Campaign auto-enrollment could not be completed.'}
+                </p>
+                {importResult.recoveryGuidance && (
+                  <p className="text-[11px] text-on-surface-variant mt-1 font-medium">
+                    {importResult.recoveryGuidance}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3 w-full max-w-3xl text-center">
               <div className="p-3.5 rounded-lg bg-surface-elevated border border-border">
@@ -609,6 +707,38 @@ export const CsvImportStudio: React.FC = () => {
                 <span className="text-2xl font-bold text-error mt-1 block">{importResult.dncProtected}</span>
               </div>
             </div>
+
+            {importResult.campaignEnrollment && (
+              <div className="w-full max-w-3xl p-4 rounded-lg bg-primary/10 border border-primary/30 flex flex-col gap-3 text-left">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                    <Icon name="campaign" size={16} />
+                    Target Campaign: {importResult.campaignEnrollment.campaignName}
+                  </span>
+                  <span className="text-xs text-on-surface-variant font-mono">
+                    ID: {importResult.campaignEnrollment.campaignId}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
+                  <div className="p-2.5 rounded bg-surface border border-border">
+                    <span className="text-on-surface-variant block">Enrolled in Campaign</span>
+                    <strong className="text-success text-base">{importResult.campaignEnrollment.enrolled}</strong>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border">
+                    <span className="text-on-surface-variant block">Skipped (Capacity Limit)</span>
+                    <strong className="text-amber-500 text-base">{importResult.campaignEnrollment.skippedCapacity}</strong>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border">
+                    <span className="text-on-surface-variant block">Already Enrolled</span>
+                    <strong className="text-on-surface-variant text-base">{importResult.campaignEnrollment.alreadyEnrolled}</strong>
+                  </div>
+                  <div className="p-2.5 rounded bg-surface border border-border">
+                    <span className="text-on-surface-variant block">DNC Scrubbed</span>
+                    <strong className="text-error text-base">{importResult.campaignEnrollment.dncProtected}</strong>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {importResult.errorCsv && (
               <div className="flex flex-col items-center gap-1.5">

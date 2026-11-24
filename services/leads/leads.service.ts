@@ -9,6 +9,8 @@ import {
 import { LeadNotesRepository, type HydratedLeadNote } from '@/repositories/lead-notes.repository';
 import { LeadTagsRepository, type LeadTagRow } from '@/repositories/lead-tags.repository';
 import { ImportJobsRepository } from '@/repositories/import-jobs.repository';
+import { CampaignsRepository } from '@/repositories/campaigns.repository';
+import { CampaignsService } from '@/services/campaigns/campaigns.service';
 import {
   leadCreateSchema,
   leadUpdateSchema,
@@ -48,6 +50,8 @@ export class LeadsService {
   private notesRepo: LeadNotesRepository;
   private tagsRepo: LeadTagsRepository;
   private importJobsRepo: ImportJobsRepository;
+  private campaignsRepo: CampaignsRepository;
+  private campaignsService: CampaignsService;
   private defaultOrgId: string;
   private isMockDevMode: boolean;
 
@@ -56,6 +60,8 @@ export class LeadsService {
     this.notesRepo = new LeadNotesRepository(supabase);
     this.tagsRepo = new LeadTagsRepository(supabase);
     this.importJobsRepo = new ImportJobsRepository(supabase);
+    this.campaignsRepo = new CampaignsRepository(supabase);
+    this.campaignsService = new CampaignsService(supabase);
     const env = getClientEnv();
     this.defaultOrgId = env.NEXT_PUBLIC_DEFAULT_ORG_ID;
     this.isMockDevMode = isMockDevMode();
@@ -758,8 +764,44 @@ export class LeadsService {
     existingDuplicates: number;
     problemRows: ImportProblemRow[];
     errorCsv: string | null;
+    status: 'completed' | 'partial_success' | 'failed';
+    leadImportStatus: 'completed' | 'failed' | 'empty';
+    campaignEnrollmentStatus: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity';
+    campaignEnrollment?: {
+      campaignId: string;
+      campaignName: string;
+      enrolled: number;
+      skippedCapacity: number;
+      alreadyEnrolled: number;
+      dncProtected: number;
+      invalid: number;
+      error?: string | null;
+    };
+    importedLeadIds?: string[];
+    recoveryGuidance?: string | null;
   }> {
     const orgId = organizationId ?? this.defaultOrgId;
+
+    // 1. Pre-validate target campaign if specified
+    let targetCampaign: any = null;
+    if (targetCampaignId) {
+      targetCampaign = await this.campaignsRepo.getById(targetCampaignId, orgId);
+      if (!targetCampaign) {
+        throw new Error(`Target campaign "${targetCampaignId}" not found or organization access denied.`);
+      }
+      if (targetCampaign.status === 'completed' || targetCampaign.status === 'cancelled' || targetCampaign.status === 'archived') {
+        throw new Error(
+          `Cannot enroll leads into campaign "${targetCampaign.name}" with terminal status "${targetCampaign.status}".`
+        );
+      }
+      const currentCapacity = await this.campaignsRepo.getEnrolledCount(targetCampaignId);
+      if (currentCapacity >= 100) {
+        throw new Error(
+          `Cannot import leads into campaign "${targetCampaign.name}": Campaign has reached its maximum capacity of 100 leads.`
+        );
+      }
+    }
+
     const parsed = parseCsv(rawCsvText);
     const normalized = normalizeCsvRows(parsed.rows, mappings);
 
@@ -784,6 +826,7 @@ export class LeadsService {
 
       let insertedCount = 0;
       let updatedCount = 0;
+      const enrolledLeadIds: string[] = [];
 
       for (const item of toInsert) {
         const fullName = `${item.first_name || ''} ${item.last_name || ''}`.trim() || 'Unnamed Lead';
@@ -823,6 +866,7 @@ export class LeadsService {
           updated_at: new Date().toISOString(),
         };
         store.leads.unshift(newLead);
+        enrolledLeadIds.push(newLead.id);
         insertedCount++;
       }
 
@@ -831,10 +875,53 @@ export class LeadsService {
         if (target) {
           Object.assign(target, updateOp.updates);
           target.updated_at = new Date().toISOString();
+          enrolledLeadIds.push(target.id);
           updatedCount++;
         }
       }
 
+      let campaignEnrollment: any = undefined;
+      let enrollmentError: string | null = null;
+      let campaignEnrollmentStatus: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity' = 'not_requested';
+
+      if (targetCampaignId) {
+        if (enrolledLeadIds.length > 0) {
+          try {
+            const enrollResult = await this.campaignsService.enrollLeads(
+              targetCampaignId,
+              enrolledLeadIds,
+              orgId,
+              actorId
+            );
+            campaignEnrollmentStatus =
+              enrollResult.skippedCapacity > 0 && enrollResult.added === 0 ? 'skipped_capacity' : 'completed';
+            campaignEnrollment = {
+              campaignId: targetCampaignId,
+              campaignName: targetCampaign?.name || targetCampaignId,
+              enrolled: enrollResult.added,
+              skippedCapacity: enrollResult.skippedCapacity,
+              alreadyEnrolled: enrollResult.alreadyAdded,
+              dncProtected: enrollResult.dncProtected,
+              invalid: enrollResult.invalid,
+            };
+          } catch (enrollErr: any) {
+            enrollmentError = enrollErr.message;
+            campaignEnrollmentStatus = 'failed';
+            campaignEnrollment = {
+              campaignId: targetCampaignId,
+              campaignName: targetCampaign?.name || targetCampaignId,
+              enrolled: 0,
+              skippedCapacity: 0,
+              alreadyEnrolled: 0,
+              dncProtected: 0,
+              invalid: 0,
+              error: enrollErr.message,
+            };
+          }
+        }
+      }
+
+      const isPartial = enrollmentError !== null;
       const errorCsv = problemRows.length > 0 ? generateErrorCsv(problemRows) : null;
 
       return {
@@ -849,6 +936,14 @@ export class LeadsService {
         existingDuplicates,
         problemRows,
         errorCsv,
+        status: isPartial ? 'partial_success' : 'completed',
+        leadImportStatus: 'completed',
+        campaignEnrollmentStatus,
+        campaignEnrollment,
+        importedLeadIds: enrolledLeadIds,
+        recoveryGuidance: isPartial
+          ? `Leads were imported into CRM (${insertedCount} new, ${updatedCount} updated), but campaign auto-enrollment could not be completed: ${enrollmentError}. Leads are safely stored in your CRM. Re-uploading will recognize existing leads idempotently, or you can assign them from the campaign management view.`
+          : null,
       };
     }
 
@@ -884,6 +979,9 @@ export class LeadsService {
         existingDuplicates,
         problemRows,
         errorCsv,
+        status: 'completed',
+        leadImportStatus: 'empty',
+        campaignEnrollmentStatus: 'not_requested',
       };
     }
 
@@ -958,6 +1056,88 @@ export class LeadsService {
     const invalid = Number(res.invalid ?? res.invalid_count ?? annotatedRows.filter((r) => !r.isValid).length);
     const dncProtected = Number(res.dnc_protected ?? res.dncProtected ?? dncCount);
 
+    let campaignEnrollment: any = undefined;
+    let enrollmentError: string | null = null;
+    let campaignEnrollmentStatus: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity' = 'not_requested';
+    let leadIdsToEnroll: string[] = [];
+
+    if (targetCampaignId && (inserted > 0 || updated > 0)) {
+      // Find the imported/updated lead records in the database to enroll (strictly filtered to imported rows, NOT whole file)
+      const importedPhones = rowsToImport.map((r) => r.phoneE164).filter(Boolean) as string[];
+      const importedEmails = rowsToImport.map((r) => r.email).filter(Boolean) as string[];
+      const importedLeads = await this.repo.findDuplicates(importedPhones, importedEmails, orgId);
+      leadIdsToEnroll = importedLeads.map((l) => l.id);
+
+      if (leadIdsToEnroll.length > 0) {
+        try {
+          const enrollResult = await this.campaignsService.enrollLeads(
+            targetCampaignId,
+            leadIdsToEnroll,
+            orgId,
+            actorId
+          );
+          campaignEnrollmentStatus =
+            enrollResult.skippedCapacity > 0 && enrollResult.added === 0 ? 'skipped_capacity' : 'completed';
+          campaignEnrollment = {
+            campaignId: targetCampaignId,
+            campaignName: targetCampaign?.name || targetCampaignId,
+            enrolled: enrollResult.added,
+            skippedCapacity: enrollResult.skippedCapacity,
+            alreadyEnrolled: enrollResult.alreadyAdded,
+            dncProtected: enrollResult.dncProtected,
+            invalid: enrollResult.invalid,
+          };
+
+          // Persist completed enrollment state to lead_import_jobs record
+          if (jobId && !jobId.startsWith('job_rpc_') && !jobId.startsWith('job_dev_') && !jobId.startsWith('job_empty_')) {
+            await this.supabase.from('lead_import_jobs').update({
+              target_campaign_id: targetCampaignId,
+              error_summary: {
+                stage: 'completed',
+                enrollment: enrollResult,
+                imported_lead_ids: leadIdsToEnroll,
+              } as any,
+            }).eq('id', jobId);
+          }
+        } catch (enrollErr: any) {
+          enrollmentError = enrollErr.message;
+          campaignEnrollmentStatus = 'failed';
+          campaignEnrollment = {
+            campaignId: targetCampaignId,
+            campaignName: targetCampaign?.name || targetCampaignId,
+            enrolled: 0,
+            skippedCapacity: 0,
+            alreadyEnrolled: 0,
+            dncProtected: 0,
+            invalid: 0,
+            error: enrollErr.message,
+          };
+
+          // Persist partial-success / enrollment failure state to lead_import_jobs record for recovery
+          if (jobId && !jobId.startsWith('job_rpc_') && !jobId.startsWith('job_dev_') && !jobId.startsWith('job_empty_')) {
+            await this.supabase.from('lead_import_jobs').update({
+              target_campaign_id: targetCampaignId,
+              error: `Campaign enrollment failed: ${enrollErr.message}`,
+              error_summary: {
+                stage: 'campaign_enrollment_failed',
+                error: enrollErr.message,
+                imported_lead_ids: leadIdsToEnroll,
+                recovery_guidance: 'Leads are saved in CRM. Re-uploading will recognize existing leads idempotently.',
+              } as any,
+            }).eq('id', jobId);
+          }
+
+          await this.logAudit(orgId, actorId, 'leads.campaign_enrollment_failed', 'campaigns', targetCampaignId, {
+            error: enrollErr.message,
+            jobId,
+            leadsCount: leadIdsToEnroll.length,
+          });
+        }
+      }
+    }
+
+    const isPartial = enrollmentError !== null;
+
     // Audit log referencing canonical job_id created by RPC
     await this.logAudit(orgId, actorId, 'leads.csv_imported', 'lead_import_jobs', jobId, {
       filename,
@@ -969,6 +1149,9 @@ export class LeadsService {
       dncProtected,
       invalid,
       strategy,
+      targetCampaignId: targetCampaignId || null,
+      campaignEnrollment: campaignEnrollment || null,
+      status: isPartial ? 'partial_success' : 'completed',
       method: 'public.import_leads_rpc',
     });
 
@@ -984,6 +1167,114 @@ export class LeadsService {
       existingDuplicates,
       problemRows,
       errorCsv,
+      status: isPartial ? 'partial_success' : 'completed',
+      leadImportStatus: 'completed',
+      campaignEnrollmentStatus,
+      campaignEnrollment,
+      importedLeadIds: leadIdsToEnroll,
+      recoveryGuidance: isPartial
+        ? `Leads were successfully imported into CRM (${inserted} inserted, ${updated} updated), but could not be enrolled into campaign "${targetCampaign?.name || targetCampaignId}": ${enrollmentError}. Leads are safely stored and can be assigned directly from the Campaigns tab without re-importing.`
+        : null,
+    };
+  }
+
+  /**
+   * Safely resumes campaign enrollment from a previously recorded import job.
+   * Uses persisted imported_lead_ids to ensure zero duplicate lead creation
+   * and prevents enrolling unrelated CRM contacts.
+   */
+  async resumeCampaignEnrollment(
+    jobId: string,
+    targetCampaignId: string,
+    organizationId?: string,
+    actorId?: string
+  ): Promise<{
+    success: boolean;
+    jobId: string;
+    targetCampaignId: string;
+    enrolled: number;
+    skippedCapacity: number;
+    alreadyEnrolled: number;
+    dncProtected: number;
+    invalid: number;
+    error?: string | null;
+  }> {
+    const orgId = organizationId ?? this.defaultOrgId;
+
+    // 1. Fetch persisted job metadata
+    let persistedLeadIds: string[] = [];
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const job = (store as any).importJobs?.find((j: any) => j.id === jobId && j.organization_id === orgId);
+      if (!job) {
+        throw new Error(`Import job "${jobId}" not found or organization access denied.`);
+      }
+      persistedLeadIds = (job.error_summary as any)?.imported_lead_ids || [];
+    } else {
+      const { data: job, error: jobError } = await this.supabase
+        .from('lead_import_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+
+      if (jobError || !job) {
+        throw new Error(`Import job "${jobId}" not found or organization access denied.`);
+      }
+      persistedLeadIds = (job.error_summary as any)?.imported_lead_ids || [];
+    }
+
+    if (persistedLeadIds.length === 0) {
+      throw new Error(
+        `Import job "${jobId}" does not contain any persisted imported lead IDs for recovery.`
+      );
+    }
+
+    // 2. Validate target campaign
+    const targetCampaign = await this.campaignsRepo.getById(targetCampaignId, orgId);
+    if (!targetCampaign) {
+      throw new Error(`Target campaign "${targetCampaignId}" not found or organization access denied.`);
+    }
+    if (targetCampaign.status === 'completed' || targetCampaign.status === 'cancelled' || targetCampaign.status === 'archived') {
+      throw new Error(
+        `Cannot enroll leads into campaign "${targetCampaign.name}" with terminal status "${targetCampaign.status}".`
+      );
+    }
+
+    // 3. Attempt enrollment with persisted lead IDs
+    const enrollResult = await this.campaignsService.enrollLeads(
+      targetCampaignId,
+      persistedLeadIds,
+      orgId,
+      actorId
+    );
+
+    // 4. Update job record with successful enrollment state
+    if (!this.isMockDevMode && !jobId.startsWith('job_rpc_') && !jobId.startsWith('job_dev_')) {
+      await this.supabase
+        .from('lead_import_jobs')
+        .update({
+          target_campaign_id: targetCampaignId,
+          status: 'completed',
+          error: null,
+          error_summary: {
+            stage: 'completed',
+            enrollment: enrollResult,
+            imported_lead_ids: persistedLeadIds,
+          } as any,
+        })
+        .eq('id', jobId);
+    }
+
+    return {
+      success: true,
+      jobId,
+      targetCampaignId,
+      enrolled: enrollResult.added,
+      skippedCapacity: enrollResult.skippedCapacity,
+      alreadyEnrolled: enrollResult.alreadyAdded,
+      dncProtected: enrollResult.dncProtected,
+      invalid: enrollResult.invalid,
     };
   }
 

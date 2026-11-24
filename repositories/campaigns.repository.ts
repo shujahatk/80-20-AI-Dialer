@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, CampaignStatusDb } from '@/lib/supabase/types';
+import { isMockDevMode } from '@/lib/env';
+import { getDevStore } from '@/lib/dev/dev-store';
 
 export type CampaignRow = Database['public']['Tables']['campaigns']['Row'];
 export type CampaignInsert = Database['public']['Tables']['campaigns']['Insert'];
@@ -233,6 +235,32 @@ export class CampaignsRepository {
     }
     if (!resolvedOrgId) throw new Error('Cannot add leads without organization_id');
 
+    if (isMockDevMode()) {
+      const store = getDevStore();
+      const existingMemberships = new Set(
+        store.campaignLeads.filter((cl) => cl.campaign_id === campaignId).map((cl) => cl.lead_id)
+      );
+      let added = 0;
+      for (const leadId of leadIds) {
+        if (!existingMemberships.has(leadId)) {
+          store.campaignLeads.push({
+            id: `cl_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            organization_id: resolvedOrgId,
+            campaign_id: campaignId,
+            lead_id: leadId,
+            state: 'queued',
+            attempt_count: 0,
+            outcome: null,
+            next_attempt_at: null,
+            created_at: new Date().toISOString(),
+          } as any);
+          existingMemberships.add(leadId);
+          added++;
+        }
+      }
+      return added;
+    }
+
     const records = leadIds.map((leadId) => ({
       organization_id: resolvedOrgId,
       campaign_id: campaignId,
@@ -246,6 +274,48 @@ export class CampaignsRepository {
 
     if (error) throw error;
     return leadIds.length;
+  }
+
+  async findActiveCampaign(orgId: string, excludeId?: string): Promise<CampaignRow | null> {
+    if (isMockDevMode()) {
+      const store = getDevStore();
+      const match = store.campaigns.find(
+        (c) =>
+          c.organization_id === orgId &&
+          (c.status === 'running' || (c.status as string) === 'active') &&
+          (!excludeId || c.id !== excludeId)
+      );
+      return (match as CampaignRow) ?? null;
+    }
+
+    let query = this.supabase
+      .from('campaigns')
+      .select('*')
+      .eq('organization_id', orgId)
+      .eq('status', 'running');
+
+    if (excludeId) {
+      query = query.neq('id', excludeId);
+    }
+
+    const { data, error } = await query.limit(1).maybeSingle();
+    if (error) throw error;
+    return (data as CampaignRow) ?? null;
+  }
+
+  async getEnrolledCount(campaignId: string): Promise<number> {
+    if (isMockDevMode()) {
+      const store = getDevStore();
+      return store.campaignLeads.filter((cl) => cl.campaign_id === campaignId).length;
+    }
+
+    const { count, error } = await this.supabase
+      .from('campaign_enrollments')
+      .select('*', { count: 'exact', head: true })
+      .eq('campaign_id', campaignId);
+
+    if (error) throw error;
+    return count ?? 0;
   }
 
   async removeLead(campaignId: string, leadId: string): Promise<boolean> {
