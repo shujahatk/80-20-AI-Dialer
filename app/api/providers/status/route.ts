@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
           twilio: audit.twilio,
           elevenlabs: audit.elevenlabs,
           anthropic: audit.anthropic,
+          resend: audit.resend,
           retell: audit.retell,
           supabase: audit.supabase,
         },
