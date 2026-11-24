@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { LeadsHeaderStrip } from '@/features/leads/LeadsHeaderStrip';
 import { LeadsFiltersBar } from '@/features/leads/LeadsFiltersBar';
 import { BulkSelectionBanner } from '@/features/leads/BulkSelectionBanner';
@@ -43,6 +43,7 @@ function LeadsMainTable({
   initialStatus?: string | null;
   initialSearch?: string | null;
 }) {
+  const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [metrics, setMetrics] = useState({
     totalLeads: 0,
@@ -166,11 +167,12 @@ function LeadsMainTable({
   };
 
   const handleInstantDial = (lead: Lead) => {
-    if (lead.status === 'dnc') {
+    if (lead.status === 'dnc' || (lead as { is_dnc?: boolean }).is_dnc) {
       showToast(`Cannot dial ${lead.name}: Prospect is strictly marked Do-Not-Call (DNC).`);
       return;
     }
-    showToast(`Initializing autonomous voice session for ${lead.name} (${lead.phone})...`);
+    showToast(`Connecting autonomous dialer for ${lead.name}...`);
+    router.push(`/workstation?leadId=${encodeURIComponent(lead.id)}&dial=${encodeURIComponent(lead.phone)}&autodial=true`);
   };
 
   const handleBulkDnc = async () => {

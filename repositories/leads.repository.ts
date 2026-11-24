@@ -26,8 +26,120 @@ export interface LeadFilterOptions {
   offset?: number;
 }
 
+/**
+ * Projects an input payload to only columns physically existing on the remote 'leads' table:
+ * ['id', 'organization_id', 'assigned_to', 'created_by', 'name', 'company',
+ *  'title', 'email', 'phone', 'city', 'status', 'temperature', 'score',
+ *  'deal_value', 'product', 'next_action', 'notes', 'deleted_at', 'created_at',
+ *  'updated_at', 'do_not_call', 'consent_at']
+ */
+export function sanitizeRemoteLeadPayload(input: Record<string, any>): Record<string, any> {
+  const computedName =
+    (input.name && String(input.name).trim()) ||
+    (input.full_name && String(input.full_name).trim()) ||
+    [input.first_name, input.last_name].filter(Boolean).join(' ').trim() ||
+    'Unnamed lead';
+  const company = input.company !== undefined ? input.company : (input.company_name ?? '');
+  const title = input.title !== undefined ? input.title : (input.job_title ?? '');
+  const phone = input.phone ?? input.phone_e164 ?? '';
+  const do_not_call =
+    input.do_not_call !== undefined
+      ? Boolean(input.do_not_call)
+      : input.is_dnc !== undefined
+      ? Boolean(input.is_dnc)
+      : false;
+
+  const rawStatus = input.status ? String(input.status).toUpperCase() : 'NEW';
+  const statusMap: Record<string, string> = {
+    NEW: 'NEW',
+    CONTACTED: 'CONTACTED',
+    ENGAGED: 'ENGAGED',
+    TECHNICAL_EVALUATION: 'TECHNICAL_EVALUATION',
+    COMMERCIAL_DISCUSSION: 'COMMERCIAL_DISCUSSION',
+    QUALIFIED: 'COMMERCIAL_DISCUSSION',
+    CONVERTED: 'COMMERCIAL_DISCUSSION',
+    UNQUALIFIED: 'CONTACTED',
+    DNC: 'CONTACTED',
+    IN_PROGRESS: 'CONTACTED',
+    QUEUED: 'NEW',
+    CONFIRMED: 'COMMERCIAL_DISCUSSION',
+    INTERESTED: 'ENGAGED',
+    FOLLOW_UP: 'ENGAGED',
+    CALLBACK: 'CONTACTED',
+    NOT_INTERESTED: 'CONTACTED',
+  };
+  const status = statusMap[rawStatus] || 'NEW';
+
+  const clean: Record<string, any> = {};
+  if (input.id) clean.id = input.id;
+  if (input.organization_id) clean.organization_id = input.organization_id;
+  clean.name = computedName;
+  if (company !== undefined) clean.company = company;
+  if (title !== undefined) clean.title = title;
+  if (phone) clean.phone = phone;
+  if (input.email !== undefined) clean.email = input.email ? String(input.email).toLowerCase().trim() : null;
+  if (input.city !== undefined) clean.city = input.city;
+  if (input.assigned_to !== undefined) clean.assigned_to = input.assigned_to;
+  if (input.created_by !== undefined) clean.created_by = input.created_by;
+  if (input.notes !== undefined) clean.notes = input.notes;
+  if (input.temperature !== undefined) clean.temperature = input.temperature;
+  if (input.score !== undefined) clean.score = input.score;
+  if (input.deal_value !== undefined) clean.deal_value = input.deal_value;
+  if (input.product !== undefined) clean.product = input.product;
+  if (input.next_action !== undefined) clean.next_action = input.next_action;
+  if (input.deleted_at !== undefined) clean.deleted_at = input.deleted_at;
+  clean.status = status;
+  clean.do_not_call = do_not_call;
+  return clean;
+}
+
 export class LeadsRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) { }
+
+  /**
+   * Enriches a raw database lead row with backward-compatible domain aliases
+   */
+  public enrichLeadRow(row: any): LeadRow {
+    if (!row) return row;
+    const nameStr = row.name || row.full_name || 'Unnamed lead';
+    const nameParts = String(nameStr).trim().split(/\s+/);
+    const firstName = row.first_name || nameParts[0] || '';
+    const lastName = row.last_name || nameParts.slice(1).join(' ') || '';
+
+    // Map uppercase remote enum status to lowercase domain status for UI
+    let domainStatus = 'new';
+    if (row.do_not_call) {
+      domainStatus = 'dnc';
+    } else if (row.status === 'COMMERCIAL_DISCUSSION' || row.status === 'TECHNICAL_EVALUATION') {
+      domainStatus = 'qualified';
+    } else if (row.status === 'ENGAGED') {
+      domainStatus = 'engaged';
+    } else if (row.status === 'CONTACTED') {
+      domainStatus = 'contacted';
+    } else {
+      domainStatus = 'new';
+    }
+
+    return {
+      ...row,
+      status: domainStatus,
+      first_name: firstName,
+      last_name: lastName,
+      full_name: nameStr,
+      company_name: row.company_name || row.company || '',
+      job_title: row.job_title || row.title || '',
+      phone_e164: row.phone_e164 || row.phone || '',
+      is_dnc: row.is_dnc ?? row.do_not_call ?? false,
+      is_archived: row.is_archived ?? Boolean(row.deleted_at),
+      country: row.country || 'US',
+      region: row.region || '',
+      city: row.city || '',
+      timezone: row.timezone || 'America/Chicago',
+      source: row.source || 'manual',
+      priority: row.priority || 'medium',
+      custom_fields: row.custom_fields || {},
+    } as LeadRow;
+  }
 
   async list(
     orgId: string,
@@ -57,24 +169,8 @@ export class LeadsRepository {
       query = query.in('status', [options.status as LeadStatusDb, upper as LeadStatusDb, lower as LeadStatusDb]);
     }
 
-    if (options.priority && options.priority !== 'All') {
-      query = query.eq('priority', options.priority as LeadPriorityDb);
-    }
-
     if (typeof options.isDnc === 'boolean') {
       query = query.eq('do_not_call', options.isDnc);
-    }
-
-    if (options.source && options.source !== 'All') {
-      query = query.eq('source', options.source);
-    }
-
-    if (options.country && options.country !== 'All') {
-      query = query.eq('country', options.country);
-    }
-
-    if (options.region && options.region !== 'All') {
-      query = query.eq('region', options.region);
     }
 
     query = query.order('created_at', { ascending: false });
@@ -87,7 +183,7 @@ export class LeadsRepository {
     if (error) throw error;
 
     return {
-      leads: (data as LeadRow[]) ?? [],
+      leads: ((data as any[]) ?? []).map((r) => this.enrichLeadRow(r)),
       totalCount: count ?? 0,
     };
   }
@@ -136,49 +232,37 @@ export class LeadsRepository {
     }
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return (data as LeadRow | null) ?? null;
+    return data ? this.enrichLeadRow(data) : null;
   }
 
   async create(input: LeadInsert): Promise<LeadRow> {
-    const payload = {
-      ...input,
-      name: input.name ?? input.full_name ?? [input.first_name, input.last_name].filter(Boolean).join(' ') ?? 'Unnamed lead',
-      company: input.company ?? input.company_name ?? '',
-      title: input.title ?? input.job_title ?? '',
-      do_not_call: input.do_not_call ?? input.is_dnc ?? false,
-      temperature: input.temperature ?? 'COLD',
-      status: (input.status ? String(input.status).toUpperCase() : 'NEW') as LeadStatusDb,
-    };
+    const payload = sanitizeRemoteLeadPayload(input);
     const { data, error } = await this.supabase
       .from('leads')
       .insert(payload)
       .select()
       .single();
     if (error) throw error;
-    return data as LeadRow;
+    return this.enrichLeadRow(data);
   }
 
   async update(id: string, orgId: string, input: LeadUpdate): Promise<LeadRow> {
-    const payload: LeadUpdate = {
+    const payload = sanitizeRemoteLeadPayload({
       ...input,
       updated_at: new Date().toISOString(),
-    };
-    if (input.full_name && !input.name) payload.name = input.full_name;
-    if (input.company_name && !input.company) payload.company = input.company_name;
-    if (input.job_title && !input.title) payload.title = input.job_title;
-    if (typeof input.is_dnc === 'boolean' && input.do_not_call === undefined) payload.do_not_call = input.is_dnc;
-    if (input.is_archived && !input.deleted_at) payload.deleted_at = new Date().toISOString();
-    if (input.status) payload.status = String(input.status).toUpperCase() as LeadStatusDb;
+    });
+    delete payload.id;
+    delete payload.organization_id;
 
     const { data, error } = await this.supabase
       .from('leads')
-      .update(payload)
+      .update(payload as any)
       .eq('id', id)
       .eq('organization_id', orgId)
       .select()
       .single();
     if (error) throw error;
-    return data as LeadRow;
+    return this.enrichLeadRow(data);
   }
 
   async markDnc(id: string, orgId: string, reason?: string | null): Promise<LeadRow> {
@@ -224,13 +308,26 @@ export class LeadsRepository {
   async bulkUpdateStatus(
     ids: string[],
     orgId: string,
-    status: LeadStatusDb
+    status: LeadStatusDb | string
   ): Promise<number> {
     if (ids.length === 0) return 0;
+    const rawStatus = String(status).toUpperCase();
+    const statusMap: Record<string, string> = {
+      NEW: 'NEW',
+      CONTACTED: 'CONTACTED',
+      ENGAGED: 'ENGAGED',
+      TECHNICAL_EVALUATION: 'TECHNICAL_EVALUATION',
+      COMMERCIAL_DISCUSSION: 'COMMERCIAL_DISCUSSION',
+      QUALIFIED: 'COMMERCIAL_DISCUSSION',
+      CONVERTED: 'COMMERCIAL_DISCUSSION',
+      UNQUALIFIED: 'CONTACTED',
+      DNC: 'CONTACTED',
+    };
+    const dbStatus = statusMap[rawStatus] || 'NEW';
     const { error } = await this.supabase
       .from('leads')
       .update({
-        status,
+        status: dbStatus as any,
         updated_at: new Date().toISOString(),
       })
       .in('id', ids)
@@ -299,16 +396,17 @@ export class LeadsRepository {
     for (const m of matches) {
       unique.set(m.id, m);
     }
-    return Array.from(unique.values());
+    return Array.from(unique.values()).map((r) => this.enrichLeadRow(r));
   }
 
   async createBatch(chunk: LeadInsert[]): Promise<LeadRow[]> {
     if (chunk.length === 0) return [];
+    const payloads = chunk.map((item) => sanitizeRemoteLeadPayload(item));
     const { data, error } = await this.supabase
       .from('leads')
-      .insert(chunk)
+      .insert(payloads as any)
       .select();
     if (error) throw error;
-    return (data as LeadRow[]) ?? [];
+    return ((data as any[]) ?? []).map((r) => this.enrichLeadRow(r));
   }
 }

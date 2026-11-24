@@ -111,10 +111,11 @@ export function useTelephony() {
 
       const json = await res.json();
       if (!json.success || !json.data) {
-        throw new Error(json.error?.message || 'Failed to initialize call');
+        const errMsg = json.error?.message || (typeof json.error === 'string' ? json.error : null) || 'Failed to initialize call';
+        throw new Error(errMsg);
       }
 
-      const { call, lead, destinationNumber } = json.data;
+      const { call, lead, destinationNumber, retellCallId, provider } = json.data;
       setActiveCall({
         callId: call.id,
         lead,
@@ -122,14 +123,39 @@ export function useTelephony() {
         destinationNumber,
       });
 
-      // 2. Connect browser WebRTC device
-      await browserDeviceManager.makeCall({
-        destinationNumber,
-        leadId: lead.id,
-        callId: call.id,
-        campaignId,
-        recordCall: true,
-      });
+      const isRetellAiCall = Boolean(
+        retellCallId ||
+        call.retell_call_id ||
+        provider === 'retell' ||
+        call.provider === 'retell'
+      );
+
+      if (isRetellAiCall) {
+        setCallState('dialing');
+        if (timerRef.current) clearInterval(timerRef.current);
+        setDurationSeconds(0);
+
+        // Retell carrier PSTN call active on network
+        setTimeout(() => {
+          setCallState('ringing');
+        }, 1500);
+
+        setTimeout(() => {
+          setCallState('connected');
+          timerRef.current = setInterval(() => {
+            setDurationSeconds((prev) => prev + 1);
+          }, 1000);
+        }, 3200);
+      } else {
+        // 2. Connect browser WebRTC device for human operator calling
+        await browserDeviceManager.makeCall({
+          destinationNumber,
+          leadId: lead.id,
+          callId: call.id,
+          campaignId,
+          recordCall: true,
+        });
+      }
     } catch (err: unknown) {
       setCallState('failed');
       const msg = err instanceof Error ? err.message : 'Call connection failed';
@@ -143,6 +169,11 @@ export function useTelephony() {
    */
   const endCall = () => {
     browserDeviceManager.hangup();
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setCallState('completed');
     setIsMuted(false);
   };
 

@@ -521,7 +521,8 @@ export function buildDatabaseOperations(
   rows: NormalizedImportRow[],
   existingCandidates: LeadRow[],
   strategy: DuplicateStrategy,
-  orgId: string
+  orgId: string,
+  actorId?: string | null
 ): DatabaseOperations {
   const toInsert: LeadInsert[] = [];
   const toUpdate: { id: string; updates: LeadUpdate }[] = [];
@@ -575,12 +576,22 @@ export function buildDatabaseOperations(
       continue;
     }
 
+    const fullName =
+      row.name ||
+      [row.firstName, row.lastName].filter(Boolean).join(' ').trim() ||
+      'Unnamed lead';
+
     toInsert.push({
       organization_id: orgId,
-      first_name: row.firstName,
-      last_name: row.lastName,
-      company_name: row.company,
-      job_title: row.title,
+      created_by: actorId || null,
+      name: fullName,
+      full_name: fullName,
+      company: row.company || '',
+      company_name: row.company || '',
+      first_name: row.firstName || (fullName.split(' ')[0] ?? ''),
+      last_name: row.lastName || (fullName.split(' ').slice(1).join(' ') ?? ''),
+      job_title: row.title || '',
+      title: row.title || '',
       phone: row.phone,
       phone_e164: row.phoneE164 || row.phone,
       email: row.email,

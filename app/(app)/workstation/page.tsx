@@ -82,10 +82,13 @@ function WorkstationContent() {
 function WorkstationCockpit() {
   const searchParams = useSearchParams();
   const dialParam = searchParams.get('dial');
+  const leadIdParam = searchParams.get('leadId');
+  const autodialParam = searchParams.get('autodial');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [leads, setLeads] = useState<QueueLead[]>([]);
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
   const [activeCampaign, setActiveCampaign] = useState<CampaignRecord | null>(null);
+  const hasAutoDialedRef = React.useRef(false);
 
   const {
     callState,
@@ -109,18 +112,58 @@ function WorkstationCockpit() {
   const currentLead = toWorkstationLead(currentDbLead, activeCampaign);
   const nextLead = toWorkstationLead(nextDbLead, activeCampaign);
 
-  // Handle direct manual dial or callback dial query parameter
+  // Handle specific leadIdParam or direct manual dial query parameter
   useEffect(() => {
-    if (dialParam && dialParam.trim()) {
-      const decodedPhone = decodeURIComponent(dialParam).trim();
-      setLeads((prev) => {
-        const existingIdx = prev.findIndex((l) => (l.phone_e164 || l.phone) === decodedPhone);
-        if (existingIdx >= 0) {
-          setCurrentLeadIndex(existingIdx);
-          return prev;
+    let isCancelled = false;
+
+    async function handleTargetLead() {
+      if (leadIdParam) {
+        try {
+          const res = await fetch(`/api/leads/${leadIdParam}`);
+          const json = await res.json();
+          if (json.success && json.data && !isCancelled) {
+            const row = json.data;
+            const targetLead: QueueLead = {
+              id: row.id,
+              full_name: row.name,
+              name: row.name,
+              phone_e164: row.phone,
+              phone: row.phone,
+              company_name: row.company,
+              company: row.company,
+              job_title: row.title,
+              title: row.title,
+              email: row.email,
+              status: row.status,
+              attempts: row.attempts || 0,
+            };
+            setLeads((prev) => {
+              const existingIdx = prev.findIndex((l) => l.id === targetLead.id);
+              if (existingIdx >= 0) {
+                const nextList = [...prev];
+                nextList[existingIdx] = { ...nextList[existingIdx], ...targetLead };
+                setCurrentLeadIndex(existingIdx);
+                return nextList;
+              }
+              setCurrentLeadIndex(0);
+              return [targetLead, ...prev];
+            });
+
+            if (autodialParam === 'true' && !hasAutoDialedRef.current && row.status !== 'dnc') {
+              hasAutoDialedRef.current = true;
+              startCall(row.id, activeCampaign?.id).catch(console.error);
+            }
+            return;
+          }
+        } catch (err) {
+          console.warn('Failed to load lead by ID for workstation:', err);
         }
+      }
+
+      if (dialParam && dialParam.trim()) {
+        const decodedPhone = decodeURIComponent(dialParam).trim();
         const adHocLead: QueueLead = {
-          id: 'manual_' + Date.now(),
+          id: leadIdParam || 'manual_' + Date.now(),
           full_name: `Direct Dial (${decodedPhone})`,
           phone_e164: decodedPhone,
           phone: decodedPhone,
@@ -128,11 +171,28 @@ function WorkstationCockpit() {
           status: 'new',
           attempts: 0,
         };
-        setCurrentLeadIndex(0);
-        return [adHocLead, ...prev];
-      });
+        setLeads((prev) => {
+          const existingIdx = prev.findIndex((l) => (l.phone_e164 || l.phone) === decodedPhone);
+          if (existingIdx >= 0) {
+            setCurrentLeadIndex(existingIdx);
+            return prev;
+          }
+          setCurrentLeadIndex(0);
+          return [adHocLead, ...prev];
+        });
+
+        if (autodialParam === 'true' && !hasAutoDialedRef.current) {
+          hasAutoDialedRef.current = true;
+          startCall(adHocLead.id as string, activeCampaign?.id).catch(console.error);
+        }
+      }
     }
-  }, [dialParam]);
+
+    handleTargetLead();
+    return () => {
+      isCancelled = true;
+    };
+  }, [leadIdParam, dialParam, autodialParam, activeCampaign?.id, startCall]);
 
   // Phase 6 & 7 Voice, Conversation Engine & Sales Intelligence Hook
   const {

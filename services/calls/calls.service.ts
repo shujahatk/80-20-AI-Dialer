@@ -41,7 +41,28 @@ export class CallsService {
    * Asserts lead callability with final runtime DNC and active call guard
    */
   async assertLeadCallable(leadId: string, organizationId: string) {
-    const lead = await this.leadsRepo.getById(leadId, organizationId);
+    let lead = await this.leadsRepo.getById(leadId, organizationId);
+
+    // Support ad-hoc manual dial numbers by creating or resolving a CRM lead
+    if (!lead && (leadId.startsWith('manual_') || /^\+?[0-9]{7,15}$/.test(leadId))) {
+      const dialNumber = leadId.replace('manual_', '');
+      const phoneNorm = normalizePhone(dialNumber, 'US');
+      if (phoneNorm.isValid && phoneNorm.e164) {
+        const existing = await this.leadsRepo.findDuplicates([phoneNorm.e164], [], organizationId);
+        if (existing.length > 0) {
+          lead = existing[0];
+        } else {
+          lead = await this.leadsRepo.create({
+            organization_id: organizationId,
+            name: `Direct Dial (${phoneNorm.e164})`,
+            phone: phoneNorm.e164,
+            source: 'manual_dial',
+            status: 'NEW',
+          } as any);
+        }
+      }
+    }
+
     if (!lead) {
       throw new Error(`Lead with ID '${leadId}' does not exist.`);
     }
@@ -54,7 +75,7 @@ export class CallsService {
       throw new Error(`Lead '${lead.full_name}' is archived and cannot be called.`);
     }
 
-    if (lead.is_dnc || lead.status === 'dnc') {
+    if (lead.is_dnc || lead.status === 'dnc' || (lead as any).do_not_call) {
       throw new Error(`Lead '${lead.full_name}' is on the Do Not Call (DNC) list.`);
     }
 
@@ -64,7 +85,7 @@ export class CallsService {
     }
 
     // Duplicate active call prevention
-    const activeCall = await this.repo.getActiveCallForLead(leadId, organizationId);
+    const activeCall = await this.repo.getActiveCallForLead(lead.id, organizationId);
     if (activeCall) {
       throw new Error(`Lead '${lead.full_name}' already has an active call in progress (Call ID: ${activeCall.id}, Status: ${activeCall.status}).`);
     }
@@ -82,6 +103,7 @@ export class CallsService {
     campaignId?: string | null;
     aiAgentId?: string | null;
     recordCall?: boolean;
+    phoneNumber?: string | null;
   }) {
     const orgId = params.organizationId ?? this.defaultOrgId;
 
@@ -94,11 +116,17 @@ export class CallsService {
     // 1. Runtime Callability, DNC & Active Call Guard
     const { lead, phoneNorm } = await this.assertLeadCallable(params.leadId, orgId);
 
-    const isAiCall = Boolean(params.aiAgentId);
+    const env = getServerEnv();
+    const effectiveAiAgentId =
+      params.aiAgentId ||
+      env.RETELL_AGENT_ID ||
+      env.RETELL_DEFAULT_AGENT_ID ||
+      null;
+
+    const isAiCall = Boolean(effectiveAiAgentId && (env.AI_VOICE_RUNTIME === 'retell' || env.RETELL_API_KEY));
     const provider = isAiCall ? 'retell' : 'twilio';
 
     // 2. Canary Allowlist Validation BEFORE Retell dispatch
-    const env = getServerEnv();
     if (env.RETELL_CAMPAIGN_MODE === 'canary' && isAiCall) {
       const allowlist = getCanaryAllowlist();
       const isAllowed =
@@ -111,13 +139,12 @@ export class CallsService {
     }
 
     // 3. Create Call record in DB with verified human approval evidence.
-    // Database write happens BEFORE provider dispatch; failed DB writes strictly abort Retell initiation.
     const now = new Date().toISOString();
     const callRecord = await this.repo.create({
       organization_id: orgId,
       lead_id: lead.id,
       campaign_id: params.campaignId || null,
-      agent_id: params.aiAgentId || null,
+      agent_id: effectiveAiAgentId || null,
       created_by: params.operatorId,
       provider: 'live',
       direction: 'outbound',
@@ -152,14 +179,14 @@ export class CallsService {
     });
 
     // 6. If Retell AI call, verify persisted human approval before dispatching to Retell
-    if (isAiCall && params.aiAgentId) {
+    if (isAiCall && effectiveAiAgentId) {
       try {
         const fromNumber = env.RETELL_PHONE_NUMBER || env.TWILIO_PHONE_NUMBER || '+13027860788';
 
-        let retellAgentId = params.aiAgentId;
+        let retellAgentId = effectiveAiAgentId;
         let agentVersionId: string | null = null;
 
-        const agent = await this.agentsRepo.getById(params.aiAgentId, orgId);
+        const agent = await this.agentsRepo.getById(effectiveAiAgentId, orgId);
         if (agent) {
           retellAgentId = agent.retell_agent_id || agent.id;
           agentVersionId = agent.active_version_id || null;
@@ -173,7 +200,7 @@ export class CallsService {
             organizationId: orgId,
             leadId: lead.id,
             campaignId: params.campaignId || null,
-            agentId: params.aiAgentId,
+            agentId: effectiveAiAgentId,
             agentVersionId,
             rmCallId: callRecord.id,
             operatorId: params.operatorId,
@@ -226,6 +253,7 @@ export class CallsService {
       lead,
       destinationNumber: phoneNorm.e164,
       retellCallId,
+      provider,
     };
   }
 

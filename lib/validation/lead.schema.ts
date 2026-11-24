@@ -20,7 +20,7 @@ export const leadPrioritySchema = z.enum(['urgent', 'high', 'medium', 'low']);
 
 export const leadCreateSchema = z.object({
   firstName: z.string().min(1, 'First name is required').max(100),
-  lastName: z.string().min(1, 'Last name is required').max(100),
+  lastName: z.string().max(100).default(''),
   companyName: z.string().min(1, 'Company name is required').max(150),
   jobTitle: z.string().max(150).optional().default(''),
   phone: z.string().min(7, 'Invalid phone number'),

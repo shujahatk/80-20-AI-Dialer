@@ -35,7 +35,7 @@ export const ManualDialpadStudio: React.FC = () => {
 
   const handleStartCall = () => {
     if (!phoneNumber.trim()) return;
-    router.push(`/workstation?dial=${encodeURIComponent(phoneNumber)}`);
+    router.push(`/workstation?dial=${encodeURIComponent(phoneNumber)}&autodial=true`);
   };
 
   return (

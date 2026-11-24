@@ -242,6 +242,8 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
         setIsEditing(false);
         setFeedback('Lead updated successfully');
         onLeadUpdated();
+      } else {
+        setFeedback(data.error || 'Failed to update lead');
       }
     } catch {
       setFeedback('Failed to update lead');
