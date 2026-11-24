@@ -165,6 +165,39 @@ export const AgentStudioStudio: React.FC = () => {
   const [isSimulatingAll, setIsSimulatingAll] = useState(false);
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle');
   const [publishError, setPublishError] = useState('');
+  const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+
+  const handlePreviewVoice = async (voice: { id: string; name: string }) => {
+    if (previewingVoiceId === voice.id) {
+      setPreviewingVoiceId(null);
+      return;
+    }
+
+    setPreviewingVoiceId(voice.id);
+    try {
+      const res = await fetch('/api/voice/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          voiceId: voice.id,
+          text: `Hello, this is ${voice.name} from RM Group. I am ready to handle customer calls and qualify prospects.`,
+        }),
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => setPreviewingVoiceId(null);
+        audio.onerror = () => setPreviewingVoiceId(null);
+        await audio.play();
+      } else {
+        setTimeout(() => setPreviewingVoiceId(null), 3000);
+      }
+    } catch {
+      setTimeout(() => setPreviewingVoiceId(null), 3000);
+    }
+  };
 
   // Handle Test Sandbox Interaction
   const handleSendTestMessage = () => {
@@ -486,13 +519,19 @@ export const AgentStudioStudio: React.FC = () => {
                     </span>
                     <button
                       type="button"
-                      className="text-[12px] text-primary font-medium flex items-center gap-1 hover:underline ml-auto"
+                      disabled={previewingVoiceId === voice.id}
+                      className="text-[12px] text-primary font-medium flex items-center gap-1 hover:underline ml-auto disabled:opacity-60"
                       onClick={(e) => {
                         e.stopPropagation();
-                        alert(`Voice Preview: ${voice.name}`);
+                        handlePreviewVoice(voice);
                       }}
                     >
-                      <Icon name="volume_up" size={14} /> Preview
+                      <Icon
+                        name={previewingVoiceId === voice.id ? 'autorenew' : 'volume_up'}
+                        size={14}
+                        className={previewingVoiceId === voice.id ? 'animate-spin' : ''}
+                      />
+                      <span>{previewingVoiceId === voice.id ? 'Playing...' : 'Preview'}</span>
                     </button>
                   </div>
                 </div>

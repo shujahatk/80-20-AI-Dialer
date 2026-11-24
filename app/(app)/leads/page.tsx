@@ -55,6 +55,7 @@ function LeadsMainTable({
   const [totalPages, setTotalPages] = useState(1);
   const [perPage, setPerPage] = useState(25);
   const [search, setSearch] = useState(initialSearch || '');
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch || '');
   const [status, setStatus] = useState(
     initialStatus === 'qualified'
       ? 'Qualified'
@@ -76,6 +77,15 @@ function LeadsMainTable({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'board'>('table');
 
+  // Debounce search by 300ms to eliminate typing query storms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -89,7 +99,7 @@ function LeadsMainTable({
         limit: String(perPage),
       });
 
-      if (search.trim()) params.set('search', search.trim());
+      if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
       if (status && status !== 'All') params.set('status', status);
       if (priority && priority !== 'All') params.set('priority', priority);
       if (dncFilter === 'dnc') params.set('isDnc', 'true');
@@ -118,7 +128,7 @@ function LeadsMainTable({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, perPage, search, status, priority, dncFilter, source]);
+  }, [currentPage, perPage, debouncedSearch, status, priority, dncFilter, source]);
 
   useEffect(() => {
     fetchLeads();
@@ -126,6 +136,7 @@ function LeadsMainTable({
 
   const handleClearFilters = () => {
     setSearch('');
+    setDebouncedSearch('');
     setStatus('All');
     setPriority('All');
     setDncFilter('all');
@@ -156,7 +167,7 @@ function LeadsMainTable({
 
   const handleInstantDial = (lead: Lead) => {
     if (lead.status === 'dnc') {
-      alert(`Cannot dial ${lead.name}: Prospect is strictly marked Do-Not-Call (DNC).`);
+      showToast(`Cannot dial ${lead.name}: Prospect is strictly marked Do-Not-Call (DNC).`);
       return;
     }
     showToast(`Initializing autonomous voice session for ${lead.name} (${lead.phone})...`);
@@ -182,9 +193,11 @@ function LeadsMainTable({
         showToast(`Marked ${selectedIds.length} leads as DNC restricted.`);
         setSelectedIds([]);
         fetchLeads();
+      } else {
+        showToast(data.error || 'Failed to perform bulk DNC operation');
       }
     } catch {
-      alert('Failed to perform bulk DNC operation');
+      showToast('Failed to perform bulk DNC operation');
     }
   };
 
@@ -207,9 +220,11 @@ function LeadsMainTable({
         showToast(`Safely archived ${selectedIds.length} leads.`);
         setSelectedIds([]);
         fetchLeads();
+      } else {
+        showToast(data.error || 'Failed to perform bulk archive operation');
       }
     } catch {
-      alert('Failed to perform bulk archive operation');
+      showToast('Failed to perform bulk archive operation');
     }
   };
 

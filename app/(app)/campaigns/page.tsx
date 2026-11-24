@@ -31,11 +31,17 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [isPacingModalOpen, setIsPacingModalOpen] = useState(false);
   const [isNewCampaignOpen, setIsNewCampaignOpen] = useState(false);
   const [selectedCampaignForEdit, setSelectedCampaignForEdit] = useState<Campaign | null>(null);
   const [selectedCampaignIdForDrawer, setSelectedCampaignIdForDrawer] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const loadCampaigns = useCallback(async () => {
     try {
@@ -68,13 +74,14 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
       });
       const data = await res.json();
       if (!data.success) {
-        alert(data.error || `Failed to ${action} campaign`);
+        showToast(data.error || `Failed to ${action} campaign`);
         return;
       }
+      showToast(`Campaign ${action}ed successfully.`);
       await loadCampaigns();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Action failed';
-      alert(message);
+      showToast(message);
     }
   };
 
@@ -241,7 +248,7 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
           isOpen={isPacingModalOpen}
           onClose={() => setIsPacingModalOpen(false)}
           onApply={(channels) => {
-            console.log('Channels multiplier applied:', channels);
+            showToast(`Concurrent lines set to ${channels}`);
             setIsPacingModalOpen(false);
           }}
         />
@@ -249,14 +256,20 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
         <NewCampaignModal
           isOpen={isNewCampaignOpen}
           onClose={() => setIsNewCampaignOpen(false)}
-          onCreated={() => loadCampaigns()}
+          onCreated={() => {
+            showToast('New campaign created successfully.');
+            loadCampaigns();
+          }}
         />
 
         <EditCampaignModal
           isOpen={!!selectedCampaignForEdit}
           campaign={selectedCampaignForEdit}
           onClose={() => setSelectedCampaignForEdit(null)}
-          onUpdated={() => loadCampaigns()}
+          onUpdated={() => {
+            showToast('Campaign settings updated.');
+            loadCampaigns();
+          }}
         />
 
         <CampaignDrawer
@@ -265,6 +278,13 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
           onClose={() => setSelectedCampaignIdForDrawer(null)}
           onActionComplete={() => loadCampaigns()}
         />
+
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-surface-elevated border border-primary/30 p-3.5 text-sm text-primary font-semibold shadow-xl flex items-center gap-2 animate-in fade-in">
+            <Icon name="check_circle" size={18} />
+            <span>{toastMessage}</span>
+          </div>
+        )}
       </div>
     </div>
   );

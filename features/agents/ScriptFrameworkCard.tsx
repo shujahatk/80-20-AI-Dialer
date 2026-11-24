@@ -1,7 +1,58 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { Icon } from '@/lib/ui/icons';
 
+interface ObjectionNode {
+  id: string;
+  trigger: string;
+  response: string;
+  color: string;
+}
+
 export const ScriptFrameworkCard: React.FC = () => {
+  const [nodes, setNodes] = useState<ObjectionNode[]>([
+    {
+      id: 'node-1',
+      trigger: '"Not interested" / "Busy"',
+      response: 'Pivot: Acknowledge time constraint; ask for 20-second summary benchmark.',
+      color: 'text-error',
+    },
+    {
+      id: 'node-2',
+      trigger: '"Using competitor / {{competitor}}"',
+      response: "Counter: Highlight RM's verified 18% deadhead reduction over legacy routing.",
+      color: 'text-primary',
+    },
+    {
+      id: 'node-3',
+      trigger: '"Just send info over email"',
+      response: 'Action: Validate target email address and lock down 5-min briefing slot.',
+      color: 'text-secondary',
+    },
+  ]);
+
+  const [isAddingNode, setIsAddingNode] = useState(false);
+  const [newTrigger, setNewTrigger] = useState('');
+  const [newResponse, setNewResponse] = useState('');
+
+  const handleAddNode = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTrigger.trim() || !newResponse.trim()) return;
+
+    setNodes((prev) => [
+      ...prev,
+      {
+        id: `node-${Date.now()}`,
+        trigger: newTrigger.trim(),
+        response: newResponse.trim(),
+        color: 'text-primary',
+      },
+    ]);
+    setNewTrigger('');
+    setNewResponse('');
+    setIsAddingNode(false);
+  };
   return (
     <div className="rounded-xl bg-surface-container-low p-space-base flex flex-col gap-space-md shadow-sm border border-outline-variant/10">
       <div className="flex items-center justify-between">
@@ -74,54 +125,74 @@ export const ScriptFrameworkCard: React.FC = () => {
                 3
               </span>
               <span className="font-body-sm text-body-sm font-semibold text-on-surface">
-                Dynamic Objection Handling Matrix
+                Dynamic Objection Handling Matrix ({nodes.length} Rules)
               </span>
             </div>
             <button
-              onClick={() => alert('Add node to objection decision tree')}
+              onClick={() => setIsAddingNode((prev) => !prev)}
               className="text-primary font-label-caps text-label-caps hover:underline"
               type="button"
             >
-              + Add Node
+              {isAddingNode ? 'Cancel' : '+ Add Node'}
             </button>
           </div>
 
+          {isAddingNode && (
+            <form onSubmit={handleAddNode} className="p-space-sm rounded bg-surface-container-lowest border border-primary/30 flex flex-col gap-2 animate-in fade-in">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-on-surface">IF MATCH Pattern (Prospect Objection)</label>
+                <input
+                  type="text"
+                  value={newTrigger}
+                  onChange={(e) => setNewTrigger(e.target.value)}
+                  placeholder='e.g. "Too expensive" / "Budget freeze"'
+                  className="px-2.5 py-1.5 rounded bg-surface-elevated text-xs border border-border text-on-surface focus:outline-none focus:border-primary"
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-semibold text-on-surface">AI Pivot / Counter Strategy</label>
+                <input
+                  type="text"
+                  value={newResponse}
+                  onChange={(e) => setNewResponse(e.target.value)}
+                  placeholder="e.g. Pivot: Clarify that initial pilot requires zero capital expenditure."
+                  className="px-2.5 py-1.5 rounded bg-surface-elevated text-xs border border-border text-on-surface focus:outline-none focus:border-primary"
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setIsAddingNode(false)}
+                  className="px-2.5 py-1 text-xs rounded border border-border text-on-surface-variant hover:text-on-surface"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-3 py-1 text-xs rounded bg-primary text-on-primary font-semibold hover:bg-primary-hover"
+                >
+                  Save Node
+                </button>
+              </div>
+            </form>
+          )}
+
           <div className="flex flex-col gap-space-2xs font-body-sm text-body-sm">
-            <div className="p-space-xs rounded bg-surface-container-lowest flex items-start justify-between gap-space-xs border border-outline-variant/10">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-error uppercase">
-                  IF MATCH: &quot;Not interested&quot; / &quot;Busy&quot;
-                </span>
-                <span className="text-on-surface text-body-sm">
-                  Pivot: Acknowledge time constraint; ask for 20-second summary benchmark.
-                </span>
+            {nodes.map((node) => (
+              <div key={node.id} className="p-space-xs rounded bg-surface-container-lowest flex items-start justify-between gap-space-xs border border-outline-variant/10">
+                <div className="flex flex-col">
+                  <span className={`font-label-caps text-label-caps uppercase ${node.color}`}>
+                    IF MATCH: {node.trigger}
+                  </span>
+                  <span className="text-on-surface text-body-sm">
+                    {node.response}
+                  </span>
+                </div>
+                <Icon name="alt_route" size={16} className="text-tertiary shrink-0 mt-0.5" />
               </div>
-              <Icon name="alt_route" size={16} className="text-tertiary" />
-            </div>
-
-            <div className="p-space-xs rounded bg-surface-container-lowest flex items-start justify-between gap-space-xs border border-outline-variant/10">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-primary uppercase">
-                  IF MATCH: &quot;Using competitor / {'{{competitor}}'}&quot;
-                </span>
-                <span className="text-on-surface text-body-sm">
-                  Counter: Highlight RM&apos;s verified 18% deadhead reduction over legacy routing.
-                </span>
-              </div>
-              <Icon name="alt_route" size={16} className="text-tertiary" />
-            </div>
-
-            <div className="p-space-xs rounded bg-surface-container-lowest flex items-start justify-between gap-space-xs border border-outline-variant/10">
-              <div className="flex flex-col">
-                <span className="font-label-caps text-label-caps text-secondary uppercase">
-                  IF MATCH: &quot;Just send info over email&quot;
-                </span>
-                <span className="text-on-surface text-body-sm">
-                  Action: Validate target email address and lock down 5-min briefing slot.
-                </span>
-              </div>
-              <Icon name="alt_route" size={16} className="text-tertiary" />
-            </div>
+            ))}
           </div>
         </div>
 

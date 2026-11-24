@@ -102,7 +102,7 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
       await fetchCampaignData();
       onActionComplete?.();
     } catch (err: any) {
-      alert(err.message);
+      setStatusMessage(err.message || 'Failed to remove lead');
     } finally {
       setIsRemovingLead(null);
     }

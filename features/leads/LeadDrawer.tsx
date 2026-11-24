@@ -156,7 +156,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
         onClose();
       }
     } catch {
-      alert('Failed to archive lead');
+      setFeedback('Failed to archive lead');
     }
   };
 
@@ -313,7 +313,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                 disabled={isDnc}
                 onClick={() => {
                   if (isDnc) {
-                    alert(`Cannot call ${lead.name}: Contact is marked as Do Not Call.`);
+                    setFeedback(`Cannot call ${lead.name}: Contact is marked as Do Not Call.`);
                     return;
                   }
                   onInstantDial?.(lead);

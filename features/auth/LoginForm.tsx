@@ -17,6 +17,7 @@ export const LoginForm: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showForgotNotice, setShowForgotNotice] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,17 +84,20 @@ export const LoginForm: React.FC = () => {
             >
               Password
             </label>
-            <a
+            <button
+              type="button"
               className="text-[13px] text-secondary hover:text-primary font-medium transition-colors"
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                alert('Please contact your RM Group system administrator to reset credentials.');
-              }}
+              onClick={() => setShowForgotNotice((prev) => !prev)}
             >
               Forgot password?
-            </a>
+            </button>
           </div>
+          {showForgotNotice && (
+            <div className="mb-2 p-2.5 rounded-lg bg-surface-secondary border border-border text-xs text-on-surface-variant flex items-center gap-2 animate-in fade-in">
+              <Icon name="info" size={16} className="text-primary shrink-0" />
+              <span>Please contact your RM Group system administrator to reset credentials.</span>
+            </div>
+          )}
           <div className="relative flex items-center">
             <span className="absolute left-3.5 text-on-surface-muted flex items-center pointer-events-none">
               <Icon name="lock" size={20} />

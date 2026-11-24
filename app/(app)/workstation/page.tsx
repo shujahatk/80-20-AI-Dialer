@@ -80,6 +80,8 @@ function WorkstationContent() {
 }
 
 function WorkstationCockpit() {
+  const searchParams = useSearchParams();
+  const dialParam = searchParams.get('dial');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [leads, setLeads] = useState<QueueLead[]>([]);
   const [currentLeadIndex, setCurrentLeadIndex] = useState(0);
@@ -94,6 +96,7 @@ function WorkstationCockpit() {
     micVolume,
     remoteVolume,
     errorMessage,
+    startCall,
     endCall,
     toggleMute,
     sendDtmf,
@@ -105,6 +108,31 @@ function WorkstationCockpit() {
   const nextDbLead = leads[currentLeadIndex + 1];
   const currentLead = toWorkstationLead(currentDbLead, activeCampaign);
   const nextLead = toWorkstationLead(nextDbLead, activeCampaign);
+
+  // Handle direct manual dial or callback dial query parameter
+  useEffect(() => {
+    if (dialParam && dialParam.trim()) {
+      const decodedPhone = decodeURIComponent(dialParam).trim();
+      setLeads((prev) => {
+        const existingIdx = prev.findIndex((l) => (l.phone_e164 || l.phone) === decodedPhone);
+        if (existingIdx >= 0) {
+          setCurrentLeadIndex(existingIdx);
+          return prev;
+        }
+        const adHocLead: QueueLead = {
+          id: 'manual_' + Date.now(),
+          full_name: `Direct Dial (${decodedPhone})`,
+          phone_e164: decodedPhone,
+          phone: decodedPhone,
+          company_name: 'Manual Call',
+          status: 'new',
+          attempts: 0,
+        };
+        setCurrentLeadIndex(0);
+        return [adHocLead, ...prev];
+      });
+    }
+  }, [dialParam]);
 
   // Phase 6 & 7 Voice, Conversation Engine & Sales Intelligence Hook
   const {
@@ -235,6 +263,16 @@ function WorkstationCockpit() {
 
           <CallControlsBar
             embedded
+            onStartCall={async () => {
+              if (!currentLead.id || currentLead.status === 'dnc') return;
+              try {
+                await startCall(currentLead.id, activeCampaign?.id);
+              } catch {
+                // error is captured in useTelephony errorMessage state
+              }
+            }}
+            canStartCall={Boolean(currentLead.id && currentLead.phone && currentLead.status !== 'dnc')}
+            isStartingCall={callState === 'preparing'}
             onHangup={() => {
               stopConversation();
               endCall();

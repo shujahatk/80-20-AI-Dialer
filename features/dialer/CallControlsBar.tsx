@@ -6,6 +6,9 @@ import { DtmfKeypad } from './DtmfKeypad';
 
 interface CallControlsBarProps {
   onHangup?: () => void;
+  onStartCall?: () => void;
+  canStartCall?: boolean;
+  isStartingCall?: boolean;
   onMuteToggle?: () => void;
   isMuted?: boolean;
   onPauseAiToggle?: (isPaused: boolean) => void;
@@ -17,6 +20,9 @@ interface CallControlsBarProps {
 
 export const CallControlsBar: React.FC<CallControlsBarProps> = ({
   onHangup,
+  onStartCall,
+  canStartCall = true,
+  isStartingCall = false,
   onMuteToggle,
   isMuted = false,
   onPauseAiToggle,
@@ -96,8 +102,8 @@ export const CallControlsBar: React.FC<CallControlsBarProps> = ({
           </button>
         </div>
 
-        {/* End Call Button */}
-        {isCallActive && (
+        {/* Action Button: Start Call or End Call */}
+        {isCallActive ? (
           <button
             onClick={onHangup}
             className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-error hover:opacity-90 text-white font-semibold text-[14px] transition-colors shadow-sm"
@@ -105,6 +111,20 @@ export const CallControlsBar: React.FC<CallControlsBarProps> = ({
           >
             <Icon name="call_end" size={18} />
             <span>End Call</span>
+          </button>
+        ) : (
+          <button
+            onClick={onStartCall}
+            disabled={!canStartCall || isStartingCall}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-primary-foreground font-semibold text-[14px] transition-colors shadow-sm"
+            type="button"
+          >
+            <Icon
+              name={isStartingCall ? 'autorenew' : 'phone'}
+              size={18}
+              className={isStartingCall ? 'animate-spin' : ''}
+            />
+            <span>{isStartingCall ? 'Connecting Call...' : 'Start Call'}</span>
           </button>
         )}
       </div>

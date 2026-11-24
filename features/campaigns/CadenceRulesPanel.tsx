@@ -5,11 +5,19 @@ import { Icon } from '@/lib/ui/icons';
 
 export const CadenceRulesPanel: React.FC = () => {
   const [isPlayingVm, setIsPlayingVm] = useState(false);
+  const [vmNotice, setVmNotice] = useState<string | null>(null);
 
   const toggleVmPlay = () => {
-    setIsPlayingVm((prev) => !prev);
     if (!isPlayingVm) {
-      alert('Playing Voicemail Audio Preview: "Hello, this is Rachel from RM Group calling regarding raw materials..."');
+      setIsPlayingVm(true);
+      setVmNotice('Playing Voicemail Audio Preview: "Hello, this is Rachel from RM Group calling regarding raw materials..."');
+      setTimeout(() => {
+        setIsPlayingVm(false);
+        setVmNotice(null);
+      }, 5000);
+    } else {
+      setIsPlayingVm(false);
+      setVmNotice(null);
     }
   };
 
@@ -72,6 +80,13 @@ export const CadenceRulesPanel: React.FC = () => {
             <Icon name={isPlayingVm ? 'stop' : 'play_arrow'} size={18} />
           </button>
         </div>
+
+        {vmNotice && (
+          <div className="p-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-medium flex items-center gap-2 animate-in fade-in">
+            <span className="w-2 h-2 rounded-full bg-primary animate-ping shrink-0" />
+            <span>{vmNotice}</span>
+          </div>
+        )}
 
         {/* Rule 3 */}
         <div className="flex items-center justify-between p-3 rounded-lg bg-surface-elevated border border-border">

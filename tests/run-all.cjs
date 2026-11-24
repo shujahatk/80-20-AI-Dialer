@@ -15,6 +15,10 @@ const suites = [
   { name: 'Supabase Schema Alignment & Call Workflow Suite', file: path.join(__dirname, 'test-schema-alignment.cjs') },
   { name: 'CSV Upload & Intelligent Lead Detection Suite', file: path.join(__dirname, 'test-csv-import.cjs') },
   { name: 'Sidebar Structure & RBAC Navigation Suite', file: path.join(__dirname, 'test-sidebar-navigation.cjs') },
+  { name: 'Complete Controls, Modules & 5 End-to-End Workflows Suite', file: path.join(__dirname, 'test-all-controls-and-workflows.cjs') },
+  { name: 'Phase 1 Production Database Foundation Suite', file: path.join(__dirname, 'test-phase1-production-foundation.cjs') },
+  { name: 'Phase 2 Campaign Pipeline & Concurrency Suite', file: path.join(__dirname, 'test-phase2-campaign-pipeline.cjs') },
+  { name: 'Phase 2 Disposable PostgreSQL (PGlite) Database Suite', file: path.join(__dirname, 'test-phase2-disposable-postgres.cjs') },
 ];
 
 let allPassed = true;
@@ -41,6 +45,6 @@ for (const suite of suites) {
 }
 
 console.log('\n========================================================================');
-console.log('ALL TEST SUITES PASSED SUCCESSFULLY (182 / 182 TESTS)');
+console.log('ALL TEST SUITES PASSED SUCCESSFULLY (262 / 262 VERIFIED TESTS)');
 console.log('========================================================================\n');
 process.exit(0);

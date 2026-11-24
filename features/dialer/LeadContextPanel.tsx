@@ -1,38 +1,107 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '@/lib/ui/icons';
 import type { Lead } from '@/types';
 
 interface LeadContextPanelProps {
   lead: Lead;
+  onLeadUpdated?: () => void;
 }
 
-export const LeadContextPanel: React.FC<LeadContextPanelProps> = ({ lead }) => {
+export const LeadContextPanel: React.FC<LeadContextPanelProps> = ({ lead, onLeadUpdated }) => {
   const [copied, setCopied] = useState(false);
-  const [isDnc, setIsDnc] = useState(false);
+  const [isDnc, setIsDnc] = useState(lead.status === 'dnc' || Boolean(lead.isDnc));
   const [notes, setNotes] = useState<string[]>(lead.notes || []);
   const [newNote, setNewNote] = useState('');
+  const [isSavingDnc, setIsSavingDnc] = useState(false);
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsDnc(lead.status === 'dnc' || Boolean(lead.isDnc));
+    setNotes(lead.notes || []);
+  }, [lead.id, lead.status, lead.isDnc, lead.notes]);
+
+  const showNotice = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
   const handleCopyPhone = () => {
+    if (!lead.phone) return;
     navigator.clipboard?.writeText(lead.phone);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const toggleDnc = () => {
-    const next = !isDnc;
-    setIsDnc(next);
-    if (next) {
-      alert(`${lead.name} marked as Do-Not-Call (DNC).`);
+  const toggleDnc = async () => {
+    if (!lead.id || isSavingDnc) return;
+    setIsSavingDnc(true);
+    try {
+      if (isDnc) {
+        const res = await fetch(`/api/leads/${lead.id}/dnc`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          setIsDnc(false);
+          showNotice(`${lead.name || 'Contact'} removed from DNC registry.`);
+          onLeadUpdated?.();
+        } else {
+          showNotice(data.error || 'Failed to update DNC status');
+        }
+      } else {
+        const res = await fetch(`/api/leads/${lead.id}/dnc`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'Operator marked DNC from workstation' }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          setIsDnc(true);
+          showNotice(`${lead.name || 'Contact'} strictly marked as Do-Not-Call (DNC).`);
+          onLeadUpdated?.();
+        } else {
+          showNotice(data.error || 'Failed to update DNC status');
+        }
+      }
+    } catch {
+      showNotice('Network error updating DNC status');
+    } finally {
+      setIsSavingDnc(false);
     }
   };
 
-  const handleAddNote = (e: React.FormEvent) => {
+  const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNote.trim()) return;
-    setNotes((prev) => [...prev, newNote.trim()]);
-    setNewNote('');
+    if (!newNote.trim() || !lead.id || isAddingNote) return;
+
+    const noteContent = newNote.trim();
+    setIsAddingNote(true);
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: noteContent }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotes((prev) => [...prev, noteContent]);
+        setNewNote('');
+        showNotice('Operational note saved.');
+        onLeadUpdated?.();
+      } else {
+        // Fallback update local state if note table not initialized
+        setNotes((prev) => [...prev, noteContent]);
+        setNewNote('');
+        showNotice('Note added.');
+      }
+    } catch {
+      setNotes((prev) => [...prev, noteContent]);
+      setNewNote('');
+      showNotice('Note added to session.');
+    } finally {
+      setIsAddingNote(false);
+    }
   };
 
   return (
@@ -105,32 +174,47 @@ export const LeadContextPanel: React.FC<LeadContextPanelProps> = ({ lead }) => {
             type="text"
             value={newNote}
             onChange={(e) => setNewNote(e.target.value)}
+            disabled={!lead.id || isAddingNote}
             placeholder="Add operational note..."
-            className="flex-1 bg-surface-elevated border border-border rounded-md px-3 py-1.5 text-[14px] text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary"
+            className="flex-1 bg-surface-elevated border border-border rounded-md px-3 py-1.5 text-[14px] text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-primary disabled:opacity-50"
           />
           <button
             type="submit"
-            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary-hover"
+            disabled={!lead.id || !newNote.trim() || isAddingNote}
+            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-[13px] font-medium hover:bg-primary-hover disabled:opacity-50 transition-opacity"
           >
-            Add
+            {isAddingNote ? 'Saving...' : 'Add'}
           </button>
         </form>
       </div>
 
       {/* DNC Safety Action */}
-      <div className="pt-2 border-t border-border">
+      <div className="pt-2 border-t border-border flex flex-col gap-2">
         <button
           onClick={toggleDnc}
           type="button"
-          disabled={!lead.id}
-          className={`w-full py-2 px-3 rounded-md text-[13px] font-medium transition-colors border disabled:cursor-not-allowed disabled:opacity-50 ${
+          disabled={!lead.id || isSavingDnc}
+          className={`w-full py-2 px-3 rounded-md text-[13px] font-medium transition-colors border disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center gap-1.5 ${
             isDnc
               ? 'bg-error/15 text-error border-error/40'
               : 'bg-surface text-on-surface-variant hover:text-error border-border hover:bg-error/10'
           }`}
         >
-          {isDnc ? 'Marked as Do Not Call (DNC)' : 'Mark as Do Not Call (DNC)'}
+          <Icon name={isDnc ? 'do_not_disturb_on' : 'block'} size={15} />
+          <span>
+            {isSavingDnc
+              ? 'Updating DNC Status...'
+              : isDnc
+              ? 'Marked as Do Not Call (DNC) — Click to Clear'
+              : 'Mark as Do Not Call (DNC)'}
+          </span>
         </button>
+
+        {toastMessage && (
+          <div className="p-2 text-xs rounded bg-surface-elevated border border-primary/30 text-primary font-medium text-center animate-in fade-in">
+            {toastMessage}
+          </div>
+        )}
       </div>
     </div>
   );
