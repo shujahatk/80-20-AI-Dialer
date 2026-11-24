@@ -14,6 +14,7 @@ const suites = [
   { name: 'Phase 1.1 Approval & CSV Import Integrity Suite', file: path.join(__dirname, 'test-phase1-1-integrity.cjs') },
   { name: 'Supabase Schema Alignment & Call Workflow Suite', file: path.join(__dirname, 'test-schema-alignment.cjs') },
   { name: 'CSV Upload & Intelligent Lead Detection Suite', file: path.join(__dirname, 'test-csv-import.cjs') },
+  { name: 'Sidebar Structure & RBAC Navigation Suite', file: path.join(__dirname, 'test-sidebar-navigation.cjs') },
 ];
 
 let allPassed = true;
