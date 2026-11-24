@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     const auth = await authenticateRequest(req);
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new CampaignsService(supabase);
 
     const { searchParams } = new URL(req.url);
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validated = campaignCreateSchema.parse(body);
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new CampaignsService(supabase);
 
     const campaign = await service.createCampaign(validated, auth.organizationId, auth.user.id);

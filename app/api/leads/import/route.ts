@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const auth = await authenticateRequest(req, { allowedRoles: ['admin', 'manager'] });
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const body = await req.json();

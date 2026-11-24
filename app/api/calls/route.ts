@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     const auth = await authenticateRequest(request);
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(request);
     const callsService = new CallsService(supabase);
 
     const limit = parseInt(request.nextUrl.searchParams.get('limit') || '50', 10);
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(request);
     const callsService = new CallsService(supabase);
 
     const result = await callsService.initiateCall({

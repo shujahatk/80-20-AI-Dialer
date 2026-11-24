@@ -28,14 +28,27 @@ export async function authenticateRequest(
   const env = getClientEnv();
   const mockDevMode = isMockDevMode();
 
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
+  const supabase = await createServerClient(request);
+  let user: any = null;
+
+  const authHeader = request?.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const jwt = authHeader.slice(7).trim();
+    const { data: jwtData, error: jwtError } = await supabase.auth.getUser(jwt);
+    if (!jwtError && jwtData?.user) {
+      user = jwtData.user;
+    }
+  }
+
+  if (!user) {
+    const {
+      data: { user: cookieUser },
+    } = await supabase.auth.getUser();
+    user = cookieUser;
+  }
 
   // 1. Check for authenticated user
-  if (authError || !user) {
+  if (!user) {
     if (mockDevMode) {
       // In local dev mock mode, check if dev session cookie exists
       const devSession = request?.cookies.get('rm_session')?.value;

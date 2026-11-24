@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
     const auth = await authenticateRequest(req);
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const { searchParams } = new URL(req.url);
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const validated = leadCreateSchema.parse(body);
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const createdLead = await service.createLead(validated, auth.organizationId, auth.user.id);
