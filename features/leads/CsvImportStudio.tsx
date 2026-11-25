@@ -430,6 +430,7 @@ export const CsvImportStudio: React.FC = () => {
               </button>
               <button
                 type="button"
+                id="continueToValidationBtn"
                 onClick={handleGoToPreview}
                 disabled={isProcessing}
                 className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover flex items-center gap-2"
@@ -634,9 +635,10 @@ export const CsvImportStudio: React.FC = () => {
               </button>
               <button
                 type="button"
+                id="executeImportBtn"
                 onClick={handleProcessImport}
                 disabled={isProcessing}
-                className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary-hover flex items-center gap-2 shadow-md"
+                className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:bg-primary-hover flex items-center gap-2 shadow-md cursor-pointer"
               >
                 {isProcessing ? 'Importing Leads...' : `Execute Lead Import (${previewSummary.validRows} Leads) →`}
               </button>
@@ -839,6 +841,7 @@ export const CsvImportStudio: React.FC = () => {
             <div className="flex items-center gap-3">
               <button
                 type="button"
+                id="viewLeadsTableBtn"
                 onClick={() => {
                   window.location.href = '/leads';
                 }}
