@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { authenticatedFetch } from '@/lib/api/client';
 import { Icon } from '@/lib/ui/icons';
 
 export const AddLeadStudio: React.FC = () => {
@@ -33,7 +34,7 @@ export const AddLeadStudio: React.FC = () => {
         .map((t) => t.trim())
         .filter(Boolean);
 
-      const res = await fetch('/api/leads', {
+      const res = await authenticatedFetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

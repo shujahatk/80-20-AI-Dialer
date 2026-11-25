@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search } from 'lucide-react';
 import Link from 'next/link';
+import { authenticatedFetch } from '@/lib/api/client';
 
 interface SearchHit {
   id: string;
@@ -40,7 +41,7 @@ export function GlobalSearch() {
     }
     const handle = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/leads?search=${encodeURIComponent(query.trim())}&limit=5`);
+        const res = await authenticatedFetch(`/api/leads?search=${encodeURIComponent(query.trim())}&limit=5`);
         const json = await res.json();
         const rows = Array.isArray(json.data) ? json.data : [];
         setHits(

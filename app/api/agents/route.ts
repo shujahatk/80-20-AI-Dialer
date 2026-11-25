@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const auth = await authenticateRequest(request);
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(request);
     const service = new AgentsService(supabase);
 
     const agents = await service.getAgentRows(auth.organizationId);
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const auth = await authenticateRequest(request, { allowedRoles: ['admin', 'manager'] });
     if (!isAuthContext(auth)) return auth;
 
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(request);
     const service = new AgentsService(supabase);
     const body = await request.json();
 

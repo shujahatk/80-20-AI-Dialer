@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(_req);
     const service = new LeadsService(supabase);
 
     const notes = await service.getNotes(id);
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const body = await req.json();

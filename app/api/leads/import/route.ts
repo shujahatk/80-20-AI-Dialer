@@ -92,8 +92,8 @@ export async function POST(req: NextRequest) {
       const message = isNone
         ? `No new leads were imported. ${result.skipped} duplicate records skipped, ${result.invalid} invalid records rejected.`
         : isPartial
-        ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
-        : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
+          ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
+          : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
 
       return NextResponse.json({
         success: true,

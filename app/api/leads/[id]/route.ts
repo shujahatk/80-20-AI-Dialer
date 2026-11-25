@@ -15,7 +15,7 @@ export async function GET(_req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(_req);
     const service = new LeadsService(supabase);
 
     const lead = await service.getLeadById(id, auth.organizationId);
@@ -36,7 +36,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const body = await req.json();
@@ -57,7 +57,7 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(_req);
     const service = new LeadsService(supabase);
 
     const archived = await service.archiveLead(id, auth.organizationId, auth.user.id);

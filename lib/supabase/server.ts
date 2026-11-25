@@ -1,12 +1,12 @@
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import type { NextRequest } from 'next/server';
 import type { Database } from './types';
 import { getClientEnv } from '../env';
 
 /**
  * Creates a Supabase client for Server Components, Route Handlers, and Server Actions.
- * Properly handles cookie access in Next.js 15 App Router.
+ * Resiliently handles both Authorization headers and cookies in Next.js 15 App Router.
  */
 export async function createServerSupabaseClient(request?: Request | NextRequest) {
   let cookieStore: any;
@@ -15,8 +15,19 @@ export async function createServerSupabaseClient(request?: Request | NextRequest
   } catch {
     cookieStore = { getAll: () => [], setAll: () => {} };
   }
+
+  let headerStore: any = null;
+  try {
+    headerStore = await headers();
+  } catch {
+    headerStore = null;
+  }
+
   const env = getClientEnv();
-  const authHeader = request?.headers?.get('authorization');
+  const authHeader =
+    request?.headers?.get('authorization') ||
+    headerStore?.get('authorization') ||
+    undefined;
 
   return createServerClient<Database>(
     env.NEXT_PUBLIC_SUPABASE_URL,
@@ -24,6 +35,13 @@ export async function createServerSupabaseClient(request?: Request | NextRequest
     {
       cookies: {
         getAll() {
+          // If request was provided and has cookies, prefer request.cookies
+          if (request && 'cookies' in request && typeof (request as any).cookies?.getAll === 'function') {
+            const reqCookies = (request as any).cookies.getAll();
+            if (reqCookies && reqCookies.length > 0) {
+              return reqCookies;
+            }
+          }
           return cookieStore.getAll?.() || [];
         },
         setAll(cookiesToSet) {

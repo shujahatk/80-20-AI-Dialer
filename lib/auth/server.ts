@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
 import { createServerClient } from '@/lib/supabase/server';
 import { getClientEnv, isMockDevMode } from '@/lib/env';
 import type { UserRole } from '@/lib/supabase/types';
@@ -31,7 +32,16 @@ export async function authenticateRequest(
   const supabase = await createServerClient(request);
   let user: any = null;
 
-  const authHeader = request?.headers.get('authorization');
+  let authHeader = request?.headers.get('authorization');
+  if (!authHeader) {
+    try {
+      const headerStore = await headers();
+      authHeader = headerStore.get('authorization');
+    } catch {
+      authHeader = null;
+    }
+  }
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const jwt = authHeader.slice(7).trim();
     const { data: jwtData, error: jwtError } = await supabase.auth.getUser(jwt);

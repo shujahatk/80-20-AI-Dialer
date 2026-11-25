@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { authenticatedFetch } from '@/lib/api/client';
 import { AcousticTelemetryBar } from '@/features/dialer/AcousticTelemetryBar';
 import { LeadContextPanel } from '@/features/dialer/LeadContextPanel';
 import { ActiveQueuePanel } from '@/features/dialer/ActiveQueuePanel';
@@ -119,7 +120,7 @@ function WorkstationCockpit() {
     async function handleTargetLead() {
       if (leadIdParam) {
         try {
-          const res = await fetch(`/api/leads/${leadIdParam}`);
+          const res = await authenticatedFetch(`/api/leads/${leadIdParam}`);
           const json = await res.json();
           if (json.success && json.data && !isCancelled) {
             const row = json.data;
@@ -226,8 +227,8 @@ function WorkstationCockpit() {
     async function loadWorkspace() {
       try {
         const [leadsRes, campRes] = await Promise.all([
-          fetch('/api/leads?limit=10'),
-          fetch('/api/campaigns?limit=1'),
+          authenticatedFetch('/api/leads?limit=10'),
+          authenticatedFetch('/api/campaigns?limit=1'),
         ]);
         const leadsData = await leadsRes.json();
         const campData = await campRes.json();

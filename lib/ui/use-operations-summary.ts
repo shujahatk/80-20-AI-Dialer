@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Campaign, Lead } from '@/types';
+import { authenticatedFetch } from '@/lib/api/client';
 import {
   buildOperationsSummary,
   emptyOperationsSummary,
@@ -41,10 +42,10 @@ export function useOperationsSummary() {
       setError(null);
       try {
         const [leadsRes, callsRes, campaignsRes, agentsRes] = await Promise.all([
-          fetch('/api/leads?limit=100', { cache: 'no-store' }),
-          fetch('/api/calls?limit=50', { cache: 'no-store' }),
-          fetch('/api/campaigns?limit=50', { cache: 'no-store' }),
-          fetch('/api/agents', { cache: 'no-store' }),
+          authenticatedFetch('/api/leads?limit=100'),
+          authenticatedFetch('/api/calls?limit=50'),
+          authenticatedFetch('/api/campaigns?limit=50'),
+          authenticatedFetch('/api/agents'),
         ]);
 
         const [leadsJson, callsJson, campaignsJson, agentsJson] = await Promise.all([

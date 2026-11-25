@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { authenticatedFetch } from '@/lib/api/client';
 import { Icon } from '@/lib/ui/icons';
 import type { Lead } from '@/types';
 import type { HydratedLeadNote } from '@/repositories/lead-notes.repository';
@@ -47,7 +48,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     setCallsLoaded(false);
     setLeadCalls([]);
 
-    fetch(`/api/leads/${leadId}`)
+    authenticatedFetch(`/api/leads/${leadId}`)
       .then((res) => res.json())
       .then((data) => {
         if (!isMounted || !data.success) return;
@@ -77,7 +78,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
 
   useEffect(() => {
     if (!leadId || drawerTab !== 'calls' || callsLoaded) return;
-    fetch(`/api/calls?limit=20`)
+    authenticatedFetch(`/api/calls?limit=20`)
       .then((res) => res.json())
       .then((data) => {
         const rows = Array.isArray(data.data) ? data.data : [];
@@ -108,7 +109,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
           return;
         }
 
-        const res = await fetch(`/api/leads/${lead.id}/dnc`, { method: 'DELETE' });
+        const res = await authenticatedFetch(`/api/leads/${lead.id}/dnc`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) {
           setIsDnc(false);
@@ -123,7 +124,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
           return;
         }
 
-        const res = await fetch(`/api/leads/${lead.id}/dnc`, {
+        const res = await authenticatedFetch(`/api/leads/${lead.id}/dnc`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ reason }),
@@ -149,7 +150,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     if (!confirm(`Archive lead "${lead.name}"? This lead will be hidden from active dialer queues.`)) return;
 
     try {
-      const res = await fetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
+      const res = await authenticatedFetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         onLeadUpdated();
@@ -165,7 +166,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     if (!lead || !newNote.trim()) return;
 
     try {
-      const res = await fetch(`/api/leads/${lead.id}/notes`, {
+      const res = await authenticatedFetch(`/api/leads/${lead.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: newNote.trim() }),
@@ -187,7 +188,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     if (!lead || !newTag.trim()) return;
 
     try {
-      const res = await fetch(`/api/leads/${lead.id}/tags`, {
+      const res = await authenticatedFetch(`/api/leads/${lead.id}/tags`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tagName: newTag.trim() }),
@@ -206,7 +207,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   const handleRemoveTag = async (tagId: string) => {
     if (!lead) return;
     try {
-      await fetch(`/api/leads/${lead.id}/tags?tagId=${tagId}`, { method: 'DELETE' });
+      await authenticatedFetch(`/api/leads/${lead.id}/tags?tagId=${tagId}`, { method: 'DELETE' });
       setTags((prev) => prev.filter((t) => t.id !== tagId));
       onLeadUpdated();
     } catch {
@@ -222,7 +223,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
       const firstName = parts[0] || '';
       const lastName = parts.slice(1).join(' ') || '';
 
-      const res = await fetch(`/api/leads/${lead.id}`, {
+      const res = await authenticatedFetch(`/api/leads/${lead.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

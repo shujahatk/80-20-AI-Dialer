@@ -16,7 +16,7 @@ export async function GET(
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new CampaignsService(supabase);
 
     const { searchParams } = new URL(req.url);
@@ -46,7 +46,7 @@ export async function POST(
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new CampaignsService(supabase);
 
     const body = await req.json();

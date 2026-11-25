@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { authenticatedFetch } from '@/lib/api/client';
 import { Icon } from '@/lib/ui/icons';
 import { normalizePhone } from '@/lib/telephony/phone';
 import type { LeadCreateInput } from '@/lib/validation';
@@ -72,7 +73,7 @@ export const AddLeadModal: React.FC<AddLeadModalProps> = ({ isOpen, onClose, onL
         email: formData.email?.trim() ? formData.email.trim() : null,
       };
 
-      const res = await fetch('/api/leads', {
+      const res = await authenticatedFetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

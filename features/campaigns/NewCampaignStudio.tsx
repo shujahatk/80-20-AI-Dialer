@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { authenticatedFetch } from '@/lib/api/client';
 import { Icon } from '@/lib/ui/icons';
 
 interface LeadSummary {
@@ -43,7 +44,7 @@ export const NewCampaignStudio: React.FC = () => {
 
   useEffect(() => {
     setIsLoadingLeads(true);
-    fetch('/api/leads?limit=100')
+    authenticatedFetch('/api/leads?limit=100')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {

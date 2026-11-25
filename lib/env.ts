@@ -7,7 +7,7 @@ const clientEnvSchema = z.object({
   NEXT_PUBLIC_DEFAULT_ORG_ID: z
     .string()
     .regex(/^[0-9a-fA-F-]{36}$/, 'Must be a valid 36-character UUID format')
-    .default('a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'),
+    .default('2f7cec0b-6e1b-419c-80eb-2254789daac2'),
   RM_PROVIDER_MODE: z.enum(['development', 'live', 'test']).default('development'),
   AI_VOICE_RUNTIME: z.enum(['legacy', 'retell']).default('retell'),
   RETELL_CAMPAIGN_MODE: z.enum(['shadow', 'canary', 'live']).default('canary'),
@@ -159,7 +159,7 @@ export function getClientEnv() {
     NEXT_PUBLIC_SUPABASE_URL: rawUrl || 'https://mock-rm-dialer.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: rawKey || 'mock-anon-key-for-local-dev',
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    NEXT_PUBLIC_DEFAULT_ORG_ID: process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    NEXT_PUBLIC_DEFAULT_ORG_ID: process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || '2f7cec0b-6e1b-419c-80eb-2254789daac2',
     RM_PROVIDER_MODE: process.env.RM_PROVIDER_MODE || (process.env.NODE_ENV === 'production' ? 'live' : 'development'),
     AI_VOICE_RUNTIME: process.env.AI_VOICE_RUNTIME || 'retell',
     RETELL_CAMPAIGN_MODE: process.env.RETELL_CAMPAIGN_MODE || 'canary',
@@ -200,7 +200,7 @@ export function getServerEnv() {
     NEXT_PUBLIC_SUPABASE_URL: rawUrl || 'https://mock-rm-dialer.supabase.co',
     NEXT_PUBLIC_SUPABASE_ANON_KEY: rawAnon || 'mock-anon-key-for-local-dev',
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    NEXT_PUBLIC_DEFAULT_ORG_ID: process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    NEXT_PUBLIC_DEFAULT_ORG_ID: process.env.NEXT_PUBLIC_DEFAULT_ORG_ID || '2f7cec0b-6e1b-419c-80eb-2254789daac2',
     RM_PROVIDER_MODE: process.env.RM_PROVIDER_MODE || (process.env.NODE_ENV === 'production' ? 'live' : 'development'),
     AI_VOICE_RUNTIME: process.env.AI_VOICE_RUNTIME || 'retell',
     RETELL_CAMPAIGN_MODE: process.env.RETELL_CAMPAIGN_MODE || 'canary',

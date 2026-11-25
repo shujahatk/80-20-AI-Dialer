@@ -26,7 +26,9 @@ export class LeadNotesRepository {
       .eq('lead_id', leadId)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      return [];
+    }
     if (!data || data.length === 0) return [];
 
     const authorIds = Array.from(new Set(data.map((n) => n.author_id))).filter(Boolean);

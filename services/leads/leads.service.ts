@@ -98,14 +98,17 @@ export class LeadsService {
 
     const leadTags = tags.length > 0 ? tags : [row.city, row.region].filter(Boolean);
 
+    const tz = row.timezone || 'America/Chicago';
+    const tzDisplay = tz.includes('/') ? (tz.split('/')[1]?.replace(/_/g, ' ') ?? 'EST') : tz;
+
     return {
       id: row.id,
-      name: row.full_name,
-      company: row.company_name,
-      phone: formatDisplayPhone(row.phone_e164 || row.phone),
-      title: row.job_title,
+      name: row.full_name || row.name || 'Unnamed lead',
+      company: row.company_name || row.company || '—',
+      phone: formatDisplayPhone(row.phone_e164 || row.phone || ''),
+      title: row.job_title || row.title || '',
       email: row.email ?? undefined,
-      timezone: `${row.timezone.split('/')[1]?.replace(/_/g, ' ') ?? 'EST'}`,
+      timezone: tzDisplay,
       localTime: '02:45 PM CST',
       fleetSize,
       tags: leadTags,
@@ -267,8 +270,8 @@ export class LeadsService {
     if (!row) return null;
 
     const [notesList, tagsList] = await Promise.all([
-      this.notesRepo.listByLeadId(id),
-      this.tagsRepo.getTagsForLead(id),
+      this.notesRepo.listByLeadId(id).catch(() => []),
+      this.tagsRepo.getTagsForLead(id).catch(() => []),
     ]);
 
     const tags = tagsList.map((t) => t.name);

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { authenticatedFetch } from '@/lib/api/client';
 import { Icon } from '@/lib/ui/icons';
 
 interface NewCampaignModalProps {
@@ -55,7 +56,7 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
       setStep(1);
       setErrorMessage(null);
       setIsLoadingLeads(true);
-      fetch('/api/leads?limit=100')
+      authenticatedFetch('/api/leads?limit=100')
         .then((res) => res.json())
         .then((data) => {
           if (data.success && Array.isArray(data.data)) {

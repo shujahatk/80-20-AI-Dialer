@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { authenticatedFetch } from '@/lib/api/client';
 import { LeadsHeaderStrip } from '@/features/leads/LeadsHeaderStrip';
 import { LeadsFiltersBar } from '@/features/leads/LeadsFiltersBar';
 import { BulkSelectionBanner } from '@/features/leads/BulkSelectionBanner';
@@ -107,13 +108,16 @@ function LeadsMainTable({
       if (dncFilter === 'callable') params.set('isDnc', 'false');
       if (source && source !== 'All') params.set('source', source);
 
-      const res = await fetch(`/api/leads?${params.toString()}`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache',
-        },
-      });
+      const res = await authenticatedFetch(`/api/leads?${params.toString()}`);
+      if (res.status === 401) {
+        setLeads([]);
+        setTotalCount(0);
+        setTotalPages(1);
+        showToast('Session expired or unauthorized. Redirecting to sign in...');
+        router.push('/login?redirectTo=/leads');
+        return;
+      }
+
       const data = await res.json();
 
       if (data.success) {
@@ -127,6 +131,9 @@ function LeadsMainTable({
         setLeads([]);
         setTotalCount(0);
         setTotalPages(1);
+        if (data.error) {
+          showToast(`Error: ${data.error}`);
+        }
       }
     } catch {
       setLeads([]);
@@ -135,7 +142,7 @@ function LeadsMainTable({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, perPage, debouncedSearch, status, priority, dncFilter, source]);
+  }, [currentPage, perPage, debouncedSearch, status, priority, dncFilter, source, router]);
 
   useEffect(() => {
     fetchLeads();
@@ -186,7 +193,7 @@ function LeadsMainTable({
     if (!confirm(`Mark ${selectedIds.length} selected leads as Do-Not-Call (DNC)?`)) return;
 
     try {
-      const res = await fetch('/api/leads/bulk', {
+      const res = await authenticatedFetch('/api/leads/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -214,7 +221,7 @@ function LeadsMainTable({
     if (!confirm(`Archive ${selectedIds.length} selected leads? They will be safely hidden from active queues.`)) return;
 
     try {
-      const res = await fetch('/api/leads/bulk', {
+      const res = await authenticatedFetch('/api/leads/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -242,7 +249,7 @@ function LeadsMainTable({
 
   const handleKanbanStatus = async (leadId: string, apiStatus: string) => {
     try {
-      const res = await fetch(`/api/leads/${leadId}`, {
+      const res = await authenticatedFetch(`/api/leads/${leadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: apiStatus }),

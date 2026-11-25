@@ -14,7 +14,7 @@ export class LeadTagsRepository {
       .select('tag_id')
       .eq('lead_id', leadId);
 
-    if (assignError) throw assignError;
+    if (assignError) return [];
     if (!assignments || assignments.length === 0) return [];
 
     const tagIds = assignments.map((a) => a.tag_id);
@@ -23,7 +23,7 @@ export class LeadTagsRepository {
       .select('*')
       .in('id', tagIds);
 
-    if (tagError) throw tagError;
+    if (tagError) return [];
     return (tags as LeadTagRow[]) ?? [];
   }
 

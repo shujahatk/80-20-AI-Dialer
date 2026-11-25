@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const body = await req.json();
@@ -37,7 +37,7 @@ export async function DELETE(req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const { searchParams } = new URL(req.url);

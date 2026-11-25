@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(req);
     const service = new LeadsService(supabase);
 
     const body = await req.json().catch(() => ({}));
@@ -39,7 +39,7 @@ export async function DELETE(_req: NextRequest, context: RouteContext) {
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await context.params;
-    const supabase = await createServerClient();
+    const supabase = await createServerClient(_req);
     const service = new LeadsService(supabase);
 
     const updated = await service.removeDnc(id, auth.organizationId, auth.user.id);
