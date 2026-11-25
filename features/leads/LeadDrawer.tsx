@@ -321,11 +321,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                   }
                   onInstantDial?.(lead);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  isDnc
-                    ? 'bg-surface-container text-on-surface-variant/40 cursor-not-allowed'
-                    : 'bg-primary text-on-primary hover:brightness-110 shadow-sm'
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${isDnc
+                  ? 'bg-surface-container text-on-surface-variant/40 cursor-not-allowed'
+                  : 'bg-primary text-on-primary hover:brightness-110 shadow-sm'
+                  }`}
                 title={isDnc ? 'Cannot call: Marked as Do Not Call' : 'Call Lead'}
               >
                 <Icon name="call" size={14} />
@@ -347,11 +346,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                 type="button"
                 disabled={isSaving}
                 onClick={handleToggleDnc}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                  isDnc
-                    ? 'bg-tertiary/10 text-tertiary border-tertiary/20'
-                    : 'bg-error/10 text-error border-error/20'
-                }`}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors ${isDnc
+                  ? 'bg-tertiary/10 text-tertiary border-tertiary/20'
+                  : 'bg-error/10 text-error border-error/20'
+                  }`}
               >
                 <Icon name={isDnc ? 'check_circle' : 'do_not_disturb_on'} size={14} />
                 <span>{isDnc ? 'Remove DNC' : 'Mark as DNC'}</span>
@@ -485,214 +483,214 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
             /* VIEW MODE */
             <>
               {(drawerTab === 'overview') && (
-              <div className="flex flex-col gap-4">
-              {/* SECTION 1: CONTACT */}
-              <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
-                <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-                  Contact
-                </span>
-                <div className="grid grid-cols-2 gap-space-sm pt-1">
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Name</span>
-                    <span className="text-sm font-semibold text-on-surface">{lead.name}</span>
+                <div className="flex flex-col gap-4">
+                  {/* SECTION 1: CONTACT */}
+                  <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
+                    <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
+                      Contact
+                    </span>
+                    <div className="grid grid-cols-2 gap-space-sm pt-1">
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Name</span>
+                        <span className="text-sm font-semibold text-on-surface">{lead.name}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Company</span>
+                        <span className="text-sm font-semibold text-on-surface">{lead.company}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Role</span>
+                        <span className="text-sm text-on-surface">{lead.title || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Phone</span>
+                        <span className="text-sm font-mono text-on-surface">{lead.phone}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-xs text-on-surface-variant block">Email</span>
+                        <span className="text-sm text-on-surface">{lead.email || '—'}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Company</span>
-                    <span className="text-sm font-semibold text-on-surface">{lead.company}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Role</span>
-                    <span className="text-sm text-on-surface">{lead.title || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Phone</span>
-                    <span className="text-sm font-mono text-on-surface">{lead.phone}</span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-xs text-on-surface-variant block">Email</span>
-                    <span className="text-sm text-on-surface">{lead.email || '—'}</span>
-                  </div>
-                </div>
-              </div>
 
-              {/* SECTION 2: STATUS */}
-              <div className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container border border-outline-variant/10">
-                <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-                  Status
-                </span>
-                <div className="grid grid-cols-2 gap-space-sm pt-1">
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Lead Status</span>
-                    <span className="text-sm font-semibold text-on-surface capitalize">{lead.status}</span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Priority</span>
-                    <span className="text-sm text-on-surface capitalize">{editForm.priority || 'Medium'}</span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-xs text-on-surface-variant block">Do Not Call (DNC)</span>
-                    <span className="text-sm text-on-surface">
-                      {isDnc ? (
-                        <span className="text-error font-medium">Protected ({dncReason || 'Customer requested'})</span>
-                      ) : (
-                        <span className="text-tertiary font-medium">Callable</span>
-                      )}
+                  {/* SECTION 2: STATUS */}
+                  <div className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container border border-outline-variant/10">
+                    <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
+                      Status
                     </span>
+                    <div className="grid grid-cols-2 gap-space-sm pt-1">
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Lead Status</span>
+                        <span className="text-sm font-semibold text-on-surface capitalize">{lead.status}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Priority</span>
+                        <span className="text-sm text-on-surface capitalize">{editForm.priority || 'Medium'}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-xs text-on-surface-variant block">Do Not Call (DNC)</span>
+                        <span className="text-sm text-on-surface">
+                          {isDnc ? (
+                            <span className="text-error font-medium">Protected ({dncReason || 'Customer requested'})</span>
+                          ) : (
+                            <span className="text-tertiary font-medium">Callable</span>
+                          )}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
 
-              {/* SECTION 3: FOLLOW-UP */}
-              <div className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container border border-outline-variant/10">
-                <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-                  Follow-Up
-                </span>
-                <div className="grid grid-cols-2 gap-space-sm pt-1">
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Last Contact</span>
-                    <span className="text-sm text-on-surface">
-                      {lead.lastOutcome || 'Not contacted yet'}
+                  {/* SECTION 3: FOLLOW-UP */}
+                  <div className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container border border-outline-variant/10">
+                    <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
+                      Follow-Up
                     </span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-on-surface-variant block">Next Action</span>
-                    <span className="text-sm text-primary font-medium">
-                      {lead.nextAction?.description || 'Ready for calling'}
-                    </span>
+                    <div className="grid grid-cols-2 gap-space-sm pt-1">
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Last Contact</span>
+                        <span className="text-sm text-on-surface">
+                          {lead.lastOutcome || 'Not contacted yet'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Next Action</span>
+                        <span className="text-sm text-primary font-medium">
+                          {lead.nextAction?.description || 'Ready for calling'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-              </div>
               )}
 
               {drawerTab === 'notes' && (
-              <div className="flex flex-col gap-space-md p-space-md rounded-xl border border-border bg-surface-elevated">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-                    Notes &amp; Tags
-                  </span>
-                </div>
-
-                {/* Tags */}
-                <div>
-                  <label className="text-xs text-on-surface-variant block mb-1">Tags</label>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {tags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-container-high text-xs text-on-surface border border-outline-variant/15"
-                      >
-                        <span>{tag.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTag(tag.id)}
-                          className="text-on-surface-variant hover:text-error ml-0.5"
-                          title="Remove tag"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                    {tags.length === 0 && (
-                      <span className="text-xs text-on-surface-variant/60">No tags assigned</span>
-                    )}
+                <div className="flex flex-col gap-space-md p-space-md rounded-xl border border-border bg-surface-elevated">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
+                      Notes &amp; Tags
+                    </span>
                   </div>
-                  <form onSubmit={handleAddTag} className="flex gap-2">
-                    <input
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      placeholder="Add tag..."
-                      className="flex-1 px-space-sm py-1 rounded bg-surface-container-lowest text-xs text-on-surface border border-outline-variant/15"
-                    />
-                    <button
-                      type="submit"
-                      className="px-space-md py-1 rounded bg-surface-container-high hover:bg-surface-bright text-xs text-on-surface font-medium"
-                    >
-                      Add
-                    </button>
-                  </form>
-                </div>
 
-                {/* Notes */}
-                <div className="pt-2 border-t border-outline-variant/10">
-                  <label className="text-xs text-on-surface-variant block mb-1">Notes ({notes.length})</label>
-                  <form onSubmit={handleAddNote} className="flex flex-col gap-2 mb-3">
-                    <textarea
-                      rows={2}
-                      value={newNote}
-                      onChange={(e) => setNewNote(e.target.value)}
-                      placeholder="Add a note..."
-                      className="w-full px-space-sm py-1.5 rounded bg-surface-container-lowest text-xs text-on-surface border border-outline-variant/15"
-                    />
-                    <div className="flex justify-end">
+                  {/* Tags */}
+                  <div>
+                    <label className="text-xs text-on-surface-variant block mb-1">Tags</label>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {tags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-container-high text-xs text-on-surface border border-outline-variant/15"
+                        >
+                          <span>{tag.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(tag.id)}
+                            className="text-on-surface-variant hover:text-error ml-0.5"
+                            title="Remove tag"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      {tags.length === 0 && (
+                        <span className="text-xs text-on-surface-variant/60">No tags assigned</span>
+                      )}
+                    </div>
+                    <form onSubmit={handleAddTag} className="flex gap-2">
+                      <input
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        placeholder="Add tag..."
+                        className="flex-1 px-space-sm py-1 rounded bg-surface-container-lowest text-xs text-on-surface border border-outline-variant/15"
+                      />
                       <button
                         type="submit"
-                        className="px-space-md py-1 rounded bg-primary text-on-primary text-xs font-semibold"
+                        className="px-space-md py-1 rounded bg-surface-container-high hover:bg-surface-bright text-xs text-on-surface font-medium"
                       >
-                        Save Note
+                        Add
                       </button>
-                    </div>
-                  </form>
+                    </form>
+                  </div>
 
-                  <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
-                    {notes.map((note) => (
-                      <div
-                        key={note.id}
-                        className="p-space-xs rounded bg-surface-container-low text-xs border border-outline-variant/10"
-                      >
-                        <div className="flex items-center justify-between text-on-surface-variant mb-1">
-                          <span className="font-semibold text-on-surface">{note.author_name || 'Operator'}</span>
-                          <span className="font-mono text-[10px]">
-                            {new Date(note.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <p className="text-on-surface whitespace-pre-wrap">{note.content}</p>
+                  {/* Notes */}
+                  <div className="pt-2 border-t border-outline-variant/10">
+                    <label className="text-xs text-on-surface-variant block mb-1">Notes ({notes.length})</label>
+                    <form onSubmit={handleAddNote} className="flex flex-col gap-2 mb-3">
+                      <textarea
+                        rows={2}
+                        value={newNote}
+                        onChange={(e) => setNewNote(e.target.value)}
+                        placeholder="Add a note..."
+                        className="w-full px-space-sm py-1.5 rounded bg-surface-container-lowest text-xs text-on-surface border border-outline-variant/15"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          className="px-space-md py-1 rounded bg-primary text-on-primary text-xs font-semibold"
+                        >
+                          Save Note
+                        </button>
                       </div>
-                    ))}
+                    </form>
+
+                    <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                      {notes.map((note) => (
+                        <div
+                          key={note.id}
+                          className="p-space-xs rounded bg-surface-container-low text-xs border border-outline-variant/10"
+                        >
+                          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+                            <span className="font-semibold text-on-surface">{note.author_name || 'Operator'}</span>
+                            <span className="font-mono text-[10px]">
+                              {new Date(note.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-on-surface whitespace-pre-wrap">{note.content}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
 
               {drawerTab === 'activity' && (
-              <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
-                <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                  Activity timeline
-                </span>
-                <div className="flex flex-col gap-2 pt-1">
-                  {notes.slice(0, 4).map((note) => (
-                    <div key={note.id} className="border-l-2 border-primary/30 pl-3 text-xs">
-                      <div className="font-medium text-on-surface">{note.author_name || 'Operator'} added a note</div>
-                      <div className="text-on-surface-variant">{note.content}</div>
-                    </div>
-                  ))}
-                  {notes.length === 0 && (
-                    <span className="text-xs text-on-surface-variant">No activity yet. Notes and call outcomes will appear here.</span>
-                  )}
+                <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                    Activity timeline
+                  </span>
+                  <div className="flex flex-col gap-2 pt-1">
+                    {notes.slice(0, 4).map((note) => (
+                      <div key={note.id} className="border-l-2 border-primary/30 pl-3 text-xs">
+                        <div className="font-medium text-on-surface">{note.author_name || 'Operator'} added a note</div>
+                        <div className="text-on-surface-variant">{note.content}</div>
+                      </div>
+                    ))}
+                    {notes.length === 0 && (
+                      <span className="text-xs text-on-surface-variant">No activity yet. Notes and call outcomes will appear here.</span>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
 
               {drawerTab === 'intelligence' && (
-              <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
-                <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                  AI intelligence
-                </span>
-                <div className="grid grid-cols-2 gap-3 pt-1 text-sm">
-                  <div>
-                    <span className="block text-xs text-on-surface-variant">Intent score</span>
-                    <span className="font-semibold text-on-surface">{lead.buyingIntentScore ?? '—'}</span>
+                <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                    AI intelligence
+                  </span>
+                  <div className="grid grid-cols-2 gap-3 pt-1 text-sm">
+                    <div>
+                      <span className="block text-xs text-on-surface-variant">Intent score</span>
+                      <span className="font-semibold text-on-surface">{lead.buyingIntentScore ?? '—'}</span>
+                    </div>
+                    <div>
+                      <span className="block text-xs text-on-surface-variant">Recommended action</span>
+                      <span className="font-medium text-primary">{lead.nextAction?.description || 'Ready to dial'}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="block text-xs text-on-surface-variant">Recommended action</span>
-                    <span className="font-medium text-primary">{lead.nextAction?.description || 'Ready to dial'}</span>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
+                    <Badge tone={priorityTone(lead.priority)}>{priorityLabel(lead.priority)}</Badge>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
-                  <Badge tone={priorityTone(lead.priority)}>{priorityLabel(lead.priority)}</Badge>
-                </div>
-              </div>
               )}
 
               {drawerTab === 'calls' && (

@@ -11,7 +11,7 @@ export const LoginForm: React.FC = () => {
   const redirectTo = searchParams?.get('redirectTo') || '/dashboard';
   const { login } = useAuth();
 
-  const [email, setEmail] = useState('operator@rmlogistics.com');
+  const [email, setEmail] = useState('admin@gmail.com');
   const [password, setPassword] = useState('Password123!');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);

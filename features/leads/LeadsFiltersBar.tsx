@@ -75,11 +75,11 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
         {/* Status Filter (2 cols) */}
         <div className="lg:col-span-2 relative">
           <select
-            value={status}
-            onChange={(e) => onStatusChange?.(e.target.value)}
+            value={status.toLowerCase()}
+            onChange={(e) => onStatusChange?.(e.target.value === 'all' ? 'All' : e.target.value)}
             className="w-full px-3 py-2 rounded-md bg-surface-elevated text-on-surface text-[14px] appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer border border-border"
           >
-            <option value="All">All Statuses</option>
+            <option value="all">All Statuses</option>
             <option value="new">New</option>
             <option value="contacted">Contacted</option>
             <option value="qualified">Qualified</option>

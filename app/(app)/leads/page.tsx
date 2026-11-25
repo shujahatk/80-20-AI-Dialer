@@ -34,7 +34,13 @@ function LeadsContent() {
     return <AddLeadStudio />;
   }
 
-  return <LeadsMainTable initialStatus={initialStatusParam} initialSearch={initialSearchParam} />;
+  return (
+    <LeadsMainTable
+      key={`${initialStatusParam || 'all'}-${initialSearchParam || 'all'}`}
+      initialStatus={initialStatusParam}
+      initialSearch={initialSearchParam}
+    />
+  );
 }
 
 function LeadsMainTable({
@@ -60,9 +66,9 @@ function LeadsMainTable({
   const [debouncedSearch, setDebouncedSearch] = useState(initialSearch || '');
   const [status, setStatus] = useState(
     initialStatus === 'qualified'
-      ? 'Qualified'
+      ? 'qualified'
       : initialStatus === 'callback'
-      ? 'Callback Scheduled'
+      ? 'contacted'
       : 'All'
   );
   const [priority, setPriority] = useState('All');
@@ -78,6 +84,21 @@ function LeadsMainTable({
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'board'>('table');
+
+  // Synchronize state when URL query parameters change (e.g. navigation from sidebar or breadcrumb)
+  useEffect(() => {
+    setStatus(
+      initialStatus === 'qualified'
+        ? 'qualified'
+        : initialStatus === 'callback'
+        ? 'contacted'
+        : 'All'
+    );
+    setDncFilter(initialStatus === 'dnc' ? 'dnc' : 'all');
+    setSearch(initialSearch || '');
+    setDebouncedSearch(initialSearch || '');
+    setCurrentPage(1);
+  }, [initialStatus, initialSearch]);
 
   // Debounce search by 300ms to eliminate typing query storms
   useEffect(() => {
@@ -102,11 +123,11 @@ function LeadsMainTable({
       });
 
       if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
-      if (status && status !== 'All') params.set('status', status);
-      if (priority && priority !== 'All') params.set('priority', priority);
+      if (status && status.toLowerCase() !== 'all') params.set('status', status.toLowerCase());
+      if (priority && priority.toLowerCase() !== 'all') params.set('priority', priority);
       if (dncFilter === 'dnc') params.set('isDnc', 'true');
       if (dncFilter === 'callable') params.set('isDnc', 'false');
-      if (source && source !== 'All') params.set('source', source);
+      if (source && source.toLowerCase() !== 'all') params.set('source', source);
 
       const res = await authenticatedFetch(`/api/leads?${params.toString()}`);
       if (res.status === 401) {
@@ -157,6 +178,7 @@ function LeadsMainTable({
     setSelectedTag('All');
     setSource('All');
     setCurrentPage(1);
+    router.push('/leads');
   };
 
   const availableTags = Array.from(

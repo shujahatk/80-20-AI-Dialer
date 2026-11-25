@@ -24,14 +24,17 @@ export async function GET(req: NextRequest) {
     const service = new LeadsService(supabase);
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search') || undefined;
-    const status = searchParams.get('status') || undefined;
-    const priority = searchParams.get('priority') || undefined;
+    const search = searchParams.get('search')?.trim() || undefined;
+    const rawStatus = searchParams.get('status')?.trim();
+    const status = rawStatus && rawStatus.toLowerCase() !== 'all' ? rawStatus : undefined;
+    const rawPriority = searchParams.get('priority')?.trim();
+    const priority = rawPriority && rawPriority.toLowerCase() !== 'all' ? rawPriority : undefined;
     const isDncParam = searchParams.get('isDnc');
     const isDnc = isDncParam !== null ? isDncParam === 'true' : undefined;
     const country = searchParams.get('country') || undefined;
     const region = searchParams.get('region') || undefined;
-    const source = searchParams.get('source') || undefined;
+    const rawSource = searchParams.get('source')?.trim();
+    const source = rawSource && rawSource.toLowerCase() !== 'all' ? rawSource : undefined;
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 25;
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : 1;
     const offset = (page - 1) * limit;

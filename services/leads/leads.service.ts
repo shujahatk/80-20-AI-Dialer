@@ -143,7 +143,7 @@ export class LeadsService {
         );
       }
 
-      if (options?.status && options.status !== 'All') {
+      if (options?.status && options.status.toLowerCase() !== 'all') {
         const statusMap: Record<string, string> = {
           'New': 'new',
           'In-Queue': 'queued',

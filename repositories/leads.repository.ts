@@ -163,7 +163,7 @@ export class LeadsRepository {
       );
     }
 
-    if (options.status && options.status !== 'All') {
+    if (options.status && options.status.toLowerCase() !== 'all') {
       const lower = options.status.toLowerCase();
       const validDbStatuses: LeadStatusDb[] = [];
 
