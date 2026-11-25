@@ -6,6 +6,15 @@ import { authenticateRequest, isAuthContext } from '@/lib/auth/server';
 import { checkRateLimit, rateLimitExceededResponse } from '@/lib/security/rate-limit';
 import type { ColumnMappingConfig, DuplicateStrategy } from '@/lib/csv/importer';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function POST(req: NextRequest) {
   try {
     const rate = await checkRateLimit(req, { limit: 10, windowMs: 60 * 1000, prefix: 'leads_import' });
@@ -79,15 +88,21 @@ export async function POST(req: NextRequest) {
       );
 
       const isPartial = result.status === 'partial_success';
-      const message = isPartial
+      const isNone = result.status === 'no_records_imported' || (result.inserted === 0 && result.updated === 0);
+      const message = isNone
+        ? `No new leads were imported. ${result.skipped} duplicate records skipped, ${result.invalid} invalid records rejected.`
+        : isPartial
         ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
         : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
 
       return NextResponse.json({
         success: true,
         partialSuccess: isPartial,
+        noneImported: isNone,
         message,
         data: result,
+      }, {
+        headers: NO_CACHE_HEADERS,
       });
     }
 

@@ -107,7 +107,13 @@ function LeadsMainTable({
       if (dncFilter === 'callable') params.set('isDnc', 'false');
       if (source && source !== 'All') params.set('source', source);
 
-      const res = await fetch(`/api/leads?${params.toString()}`);
+      const res = await fetch(`/api/leads?${params.toString()}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache',
+        },
+      });
       const data = await res.json();
 
       if (data.success) {
@@ -372,7 +378,11 @@ function LeadsMainTable({
           isOpen={isImportOpen}
           onClose={() => setIsImportOpen(false)}
           onImportComplete={(count) => {
-            showToast(`Successfully imported ${count} leads into queue!`);
+            if (count > 0) {
+              showToast(`Successfully imported ${count} leads into CRM.`);
+            } else {
+              showToast('Import completed: No new leads added (duplicates or invalid rows).');
+            }
             fetchLeads();
           }}
         />

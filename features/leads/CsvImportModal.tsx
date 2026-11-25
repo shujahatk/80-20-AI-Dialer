@@ -692,25 +692,53 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
           {/* STEP 4: IMPORT RESULTS (COMPLETION) */}
           {step === 4 && importResult && (
             <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
-              <div className="w-14 h-14 rounded-full bg-accent-surface text-primary flex items-center justify-center border border-secondary/30">
-                <Icon name="check_circle" size={32} className="font-bold" />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <h3 className="text-[18px] font-bold text-on-surface">
-                  Import Completed Successfully
-                </h3>
-                <span className="text-[14px] text-on-surface-variant max-w-md">
-                  All records have been processed and saved to your leads database.
-                </span>
-                {importResult.jobId && (
-                  <div className="mt-1">
-                    <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
-                      RPC Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
-                    </span>
+              {importResult.inserted === 0 && importResult.updated === 0 ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center border border-amber-500/30">
+                    <Icon name="info" size={32} className="font-bold" />
                   </div>
-                )}
-              </div>
+
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-[18px] font-bold text-on-surface">
+                      No Leads Added to Database
+                    </h3>
+                    <span className="text-[14px] text-on-surface-variant max-w-md">
+                      0 leads were imported. All {importResult.totalRows} records were skipped as duplicates ({importResult.skipped}) or invalid ({importResult.invalid}).
+                    </span>
+                    {importResult.jobId && (
+                      <div className="mt-1">
+                        <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
+                          Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-accent-surface text-primary flex items-center justify-center border border-secondary/30">
+                    <Icon name="check_circle" size={32} className="font-bold" />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-[18px] font-bold text-on-surface">
+                      Import Completed: {importResult.inserted} {importResult.inserted === 1 ? 'Lead' : 'Leads'} Added
+                    </h3>
+                    <span className="text-[14px] text-on-surface-variant max-w-md">
+                      {importResult.inserted} leads successfully saved to database.
+                      {importResult.skipped > 0 && ` (${importResult.skipped} duplicates skipped)`}
+                      {importResult.invalid > 0 && ` (${importResult.invalid} invalid)`}
+                    </span>
+                    {importResult.jobId && (
+                      <div className="mt-1">
+                        <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
+                          Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
 
               {/* 5 Result Metric Cards */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 w-full max-w-2xl">

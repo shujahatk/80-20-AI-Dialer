@@ -46,8 +46,8 @@ export function sanitizeRemoteLeadPayload(input: Record<string, any>): Record<st
     input.do_not_call !== undefined
       ? Boolean(input.do_not_call)
       : input.is_dnc !== undefined
-      ? Boolean(input.is_dnc)
-      : false;
+        ? Boolean(input.is_dnc)
+        : false;
 
   const rawStatus = input.status ? String(input.status).toUpperCase() : 'NEW';
   const statusMap: Record<string, string> = {
@@ -166,11 +166,23 @@ export class LeadsRepository {
     if (options.status && options.status !== 'All') {
       const upper = options.status.toUpperCase();
       const lower = options.status.toLowerCase();
-      query = query.in('status', [options.status as LeadStatusDb, upper as LeadStatusDb, lower as LeadStatusDb]);
+      const allowed: string[] = [options.status, upper, lower];
+      if (lower === 'qualified') {
+        allowed.push('ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION');
+      } else if (lower === 'new') {
+        allowed.push('NEW', 'QUEUED', 'queued');
+      } else if (lower === 'contacted') {
+        allowed.push('CONTACTED', 'IN_PROGRESS', 'in_progress');
+      }
+      query = query.in('status', Array.from(new Set(allowed)) as LeadStatusDb[]);
     }
 
     if (typeof options.isDnc === 'boolean') {
-      query = query.eq('do_not_call', options.isDnc);
+      if (options.isDnc) {
+        query = query.eq('do_not_call', true);
+      } else {
+        query = query.or('do_not_call.eq.false,do_not_call.is.null');
+      }
     }
 
     query = query.order('created_at', { ascending: false });

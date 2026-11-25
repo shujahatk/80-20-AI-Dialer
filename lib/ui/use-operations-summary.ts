@@ -41,10 +41,10 @@ export function useOperationsSummary() {
       setError(null);
       try {
         const [leadsRes, callsRes, campaignsRes, agentsRes] = await Promise.all([
-          fetch('/api/leads?limit=100'),
-          fetch('/api/calls?limit=50'),
-          fetch('/api/campaigns?limit=50'),
-          fetch('/api/agents'),
+          fetch('/api/leads?limit=100', { cache: 'no-store' }),
+          fetch('/api/calls?limit=50', { cache: 'no-store' }),
+          fetch('/api/campaigns?limit=50', { cache: 'no-store' }),
+          fetch('/api/agents', { cache: 'no-store' }),
         ]);
 
         const [leadsJson, callsJson, campaignsJson, agentsJson] = await Promise.all([

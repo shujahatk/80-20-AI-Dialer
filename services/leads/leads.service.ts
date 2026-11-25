@@ -70,7 +70,11 @@ export class LeadsService {
   /**
    * Translates database LeadRow into UI domain Lead type.
    */
-  public toDomain(row: LeadRow, tags: string[] = []): Lead {
+  public toDomain(
+    row: LeadRow,
+    tags: string[] = [],
+    campaignInfo?: { id?: string; name?: string }
+  ): Lead {
     const statusMap: Record<string, LeadStatus> = {
       NEW: 'new',
       CONTACTED: 'connected',
@@ -107,8 +111,8 @@ export class LeadsService {
       tags: leadTags,
       status: row.is_dnc ? 'dnc' : statusMap[row.status] ?? 'new',
       priority: (row.priority as Lead['priority']) || 'medium',
-      campaignId: 'cmp_logistics_outbound',
-      campaignName: 'Logistics Outbound',
+      campaignId: campaignInfo?.id || (row as any).campaign_id || undefined,
+      campaignName: campaignInfo?.name || (row as any).campaign_name || undefined,
       attempts: 0,
       maxAttempts: 4,
       lastOutcome: row.is_dnc ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}` : undefined,
@@ -191,7 +195,31 @@ export class LeadsService {
       this.repo.getMetrics(orgId),
     ]);
 
-    const domainLeads = rows.map((r) => this.toDomain(r));
+    const rowIds = rows.map((r) => r.id);
+    const campaignMap = new Map<string, { id: string; name: string }>();
+
+    if (rowIds.length > 0) {
+      try {
+        const { data: enrolls } = await this.supabase
+          .from('campaign_enrollments')
+          .select('lead_id, campaign_id, campaigns(id, name)')
+          .in('lead_id', rowIds);
+
+        if (enrolls) {
+          for (const e of enrolls) {
+            const camp = (e as any).campaigns;
+            campaignMap.set(e.lead_id, {
+              id: e.campaign_id,
+              name: camp?.name || 'Campaign',
+            });
+          }
+        }
+      } catch {
+        // non-blocking
+      }
+    }
+
+    const domainLeads = rows.map((r) => this.toDomain(r, [], campaignMap.get(r.id)));
 
     return {
       leads: domainLeads,
@@ -778,7 +806,7 @@ export class LeadsService {
     existingDuplicates: number;
     problemRows: ImportProblemRow[];
     errorCsv: string | null;
-    status: 'completed' | 'partial_success' | 'failed';
+    status: 'completed' | 'partial_success' | 'failed' | 'no_records_imported';
     leadImportStatus: 'completed' | 'failed' | 'empty';
     campaignEnrollmentStatus: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity';
     campaignEnrollment?: {
@@ -994,7 +1022,7 @@ export class LeadsService {
         existingDuplicates,
         problemRows,
         errorCsv,
-        status: 'completed',
+        status: 'no_records_imported',
         leadImportStatus: 'empty',
         campaignEnrollmentStatus: 'not_requested',
       };
@@ -1210,6 +1238,9 @@ export class LeadsService {
       method: 'public.import_leads_rpc',
     });
 
+    const isNone = inserted === 0 && updated === 0;
+    const finalStatus = isNone ? 'no_records_imported' : isPartial ? 'partial_success' : 'completed';
+
     return {
       inserted,
       updated,
@@ -1222,7 +1253,7 @@ export class LeadsService {
       existingDuplicates,
       problemRows,
       errorCsv,
-      status: isPartial ? 'partial_success' : 'completed',
+      status: finalStatus,
       leadImportStatus: 'completed',
       campaignEnrollmentStatus,
       campaignEnrollment,

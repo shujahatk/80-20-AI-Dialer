@@ -74,9 +74,12 @@ export const CsvImportStudio: React.FC = () => {
       try {
         const res = await fetch('/api/campaigns?status=active');
         const data = await res.json();
-        if (data.success && Array.isArray(data.data?.campaigns)) {
-          setCampaigns(data.data.campaigns);
-        }
+        const campaignList = Array.isArray(data.data)
+          ? data.data
+          : Array.isArray(data.data?.campaigns)
+          ? data.data.campaigns
+          : [];
+        setCampaigns(campaignList);
       } catch {
         // Mock / offline fallback
       }
@@ -636,31 +639,43 @@ export const CsvImportStudio: React.FC = () => {
           <div className="bg-surface rounded-xl border border-border p-8 flex flex-col items-center text-center gap-6">
             <div
               className={`w-16 h-16 rounded-full flex items-center justify-center ${
-                importResult.status === 'partial_success'
+                importResult.inserted === 0 && importResult.updated === 0
+                  ? 'bg-amber-500/20 text-amber-500'
+                  : importResult.status === 'partial_success'
                   ? 'bg-amber-500/20 text-amber-500'
                   : 'bg-success/20 text-success'
               }`}
             >
               <Icon
-                name={importResult.status === 'partial_success' ? 'warning' : 'check_circle'}
+                name={
+                  importResult.inserted === 0 && importResult.updated === 0
+                    ? 'info'
+                    : importResult.status === 'partial_success'
+                    ? 'warning'
+                    : 'check_circle'
+                }
                 size={40}
               />
             </div>
             <div>
               <h2 className="text-2xl font-bold text-on-surface">
-                {importResult.status === 'partial_success'
-                  ? 'Import Completed with Partial Enrollment'
-                  : 'Import Completed Successfully'}
+                {importResult.inserted === 0 && importResult.updated === 0
+                  ? 'No Leads Added to Database'
+                  : importResult.status === 'partial_success'
+                  ? `Import Completed: ${importResult.inserted} Leads Added (Partial Enrollment)`
+                  : `Import Completed: ${importResult.inserted} ${importResult.inserted === 1 ? 'Lead' : 'Leads'} Added`}
               </h2>
               <p className="text-sm text-on-surface-variant mt-1">
-                {importResult.status === 'partial_success'
+                {importResult.inserted === 0 && importResult.updated === 0
+                  ? `0 new leads were added. All ${importResult.totalRows} rows were skipped as duplicates (${importResult.skipped}) or invalid (${importResult.invalid}).`
+                  : importResult.status === 'partial_success'
                   ? 'Your leads have been safely stored in CRM, but campaign enrollment was incomplete.'
-                  : 'Your lead batch has been ingested and queued for campaign dialer routing.'}
+                  : `${importResult.inserted} leads successfully saved into CRM database.`}
               </p>
               {importResult.jobId && (
                 <div className="mt-2">
                   <span className="inline-block px-3 py-1 rounded-full bg-surface-elevated text-on-surface-variant text-xs font-mono border border-border">
-                    RPC Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                    Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
                   </span>
                 </div>
               )}
@@ -757,12 +772,15 @@ export const CsvImportStudio: React.FC = () => {
             )}
 
             <div className="flex items-center gap-3">
-              <Link
-                href="/leads"
-                className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover shadow-md"
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = '/leads';
+                }}
+                className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover shadow-md cursor-pointer transition-colors"
               >
                 View Leads Table
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => {

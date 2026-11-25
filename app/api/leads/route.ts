@@ -6,6 +6,15 @@ import { authenticateRequest, isAuthContext } from '@/lib/auth/server';
 import { checkRateLimit, rateLimitExceededResponse } from '@/lib/security/rate-limit';
 import { leadCreateSchema } from '@/lib/validation';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await authenticateRequest(req);
@@ -47,6 +56,8 @@ export async function GET(req: NextRequest) {
       page,
       limit,
       totalPages: Math.ceil(result.totalCount / limit) || 1,
+    }, {
+      headers: NO_CACHE_HEADERS,
     });
   } catch (error: unknown) {
     const err = sanitizeError(error);
