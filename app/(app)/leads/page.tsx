@@ -156,10 +156,12 @@ function LeadsMainTable({
           showToast(`Error: ${data.error}`);
         }
       }
-    } catch {
+    } catch (err: unknown) {
+      console.error('Failed to load leads from server:', err);
       setLeads([]);
       setTotalCount(0);
       setTotalPages(1);
+      showToast('Could not connect to CRM backend. Please check network and refresh.');
     } finally {
       setIsLoading(false);
     }
@@ -295,6 +297,8 @@ function LeadsMainTable({
           onOpenImport={() => setIsImportOpen(true)}
           onAddLead={() => setIsAddLeadOpen(true)}
           onExportCsv={handleExportCsv}
+          onRefresh={fetchLeads}
+          isRefreshing={isLoading}
         />
 
         {/* Advanced Filter & Control Bar */}

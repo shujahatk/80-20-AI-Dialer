@@ -7,16 +7,29 @@ import { createClient } from '@/lib/supabase/client';
  */
 export async function getClientAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
+    'Expires': '0',
   };
 
   if (typeof window !== 'undefined') {
     try {
       const supabase = createClient();
-      const { data } = await supabase.auth.getSession();
-      if (data?.session?.access_token) {
-        headers['Authorization'] = `Bearer ${data.session.access_token}`;
+      let session = (await supabase.auth.getSession()).data?.session;
+
+      // Proactively refresh if session token expires within 2 minutes or already expired
+      if (session) {
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+        if (expiresAt && Date.now() >= expiresAt - 120000) {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed?.session) {
+            session = refreshed.session;
+          }
+        }
+      }
+
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
       }
     } catch {
       // Non-blocking fallback

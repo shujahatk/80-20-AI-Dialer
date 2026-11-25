@@ -13,6 +13,8 @@ interface LeadsHeaderStripProps {
   onOpenImport: () => void;
   onAddLead?: () => void;
   onExportCsv?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 export const LeadsHeaderStrip: React.FC<LeadsHeaderStripProps> = ({
@@ -20,6 +22,8 @@ export const LeadsHeaderStrip: React.FC<LeadsHeaderStripProps> = ({
   onOpenImport,
   onAddLead,
   onExportCsv,
+  onRefresh,
+  isRefreshing,
 }) => {
   const cells = [
     { label: 'Total leads', value: metrics.totalLeads },
@@ -36,6 +40,18 @@ export const LeadsHeaderStrip: React.FC<LeadsHeaderStripProps> = ({
           <p className="page-description">Contacts, suppliers, and outbound records in this workspace.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              title="Refresh leads list"
+              className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px] font-medium text-on-surface transition-colors hover:bg-surface-elevated disabled:opacity-50"
+              type="button"
+            >
+              <Icon name="refresh" size={16} className={isRefreshing ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          )}
           <button onClick={onAddLead} className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px] font-medium text-on-surface transition-colors hover:bg-surface-elevated" type="button">
             <Icon name="person_add" size={16} />
             Add lead
