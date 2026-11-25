@@ -91,6 +91,7 @@ export interface Lead {
   fleetSize?: string;
   tags?: string[];
   status: LeadStatus;
+  qualificationStatus?: string;
   priority?: LeadPriority;
   campaignId?: string;
   campaignName?: string;

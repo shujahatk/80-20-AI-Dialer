@@ -740,12 +740,16 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
 
                   <div className="flex flex-col gap-1">
                     <h3 className="text-[18px] font-bold text-on-surface">
-                      Import Completed: {importResult.inserted} {importResult.inserted === 1 ? 'Lead' : 'Leads'} Added
+                      {importResult.inserted === 0 && importResult.skipped > 0
+                        ? 'These contacts already exist in your CRM. No duplicate records were created.'
+                        : `Import Completed: ${importResult.inserted} ${importResult.inserted === 1 ? 'Lead' : 'Leads'} Added`}
                     </h3>
                     <span className="text-[14px] text-on-surface-variant max-w-md">
-                      {importResult.inserted} leads successfully saved to database.
-                      {importResult.skipped > 0 && ` (${importResult.skipped} duplicates skipped)`}
-                      {importResult.invalid > 0 && ` (${importResult.invalid} invalid)`}
+                      {importResult.inserted === 0 && importResult.skipped > 0
+                        ? `All ${importResult.skipped} contacts are already saved in your CRM. Existing contacts were preserved without creating duplicates.`
+                        : `${importResult.inserted} leads successfully saved to database.${
+                            importResult.skipped > 0 ? ` (${importResult.skipped} duplicates skipped)` : ''
+                          }${importResult.invalid > 0 ? ` (${importResult.invalid} invalid)` : ''}`}
                     </span>
                     {importResult.jobId && (
                       <div className="mt-1">
@@ -953,7 +957,11 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                 id="viewLeadsBtn"
                 type="button"
               >
-                <span>View Leads</span>
+                <span>
+                  {importResult?.inserted === 0 && (importResult?.skipped ?? 0) > 0
+                    ? 'View Existing Leads'
+                    : 'View Leads'}
+                </span>
                 <Icon name="arrow_forward" size={16} />
               </button>
             </div>

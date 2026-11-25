@@ -6,6 +6,7 @@ import {
   type LeadFilterOptions,
   type LeadMetricsSummary,
 } from '@/repositories/leads.repository';
+import { toDomainLeadStatus } from '@/lib/lead-status';
 import { LeadNotesRepository, type HydratedLeadNote } from '@/repositories/lead-notes.repository';
 import { LeadTagsRepository, type LeadTagRow } from '@/repositories/lead-tags.repository';
 import { ImportJobsRepository } from '@/repositories/import-jobs.repository';
@@ -75,22 +76,6 @@ export class LeadsService {
     tags: string[] = [],
     campaignInfo?: { id?: string; name?: string }
   ): Lead {
-    const statusMap: Record<string, LeadStatus> = {
-      NEW: 'new',
-      CONTACTED: 'connected',
-      ENGAGED: 'qualified',
-      TECHNICAL_EVALUATION: 'qualified',
-      COMMERCIAL_DISCUSSION: 'meeting-booked',
-      new: 'new',
-      queued: 'in-queue',
-      in_progress: 'dialing',
-      contacted: 'connected',
-      qualified: 'qualified',
-      converted: 'meeting-booked',
-      unqualified: 'unreachable',
-      dnc: 'dnc',
-    };
-
     const fleetSize =
       typeof row.custom_fields === 'object' && row.custom_fields !== null && 'fleet_size' in row.custom_fields
         ? String((row.custom_fields as Record<string, unknown>).fleet_size)
@@ -100,6 +85,9 @@ export class LeadsService {
 
     const tz = row.timezone || 'America/Chicago';
     const tzDisplay = tz.includes('/') ? (tz.split('/')[1]?.replace(/_/g, ' ') ?? 'EST') : tz;
+
+    const isDnc = Boolean(row.is_dnc ?? row.do_not_call);
+    const domainStatus = toDomainLeadStatus(row.status, isDnc);
 
     return {
       id: row.id,
@@ -112,13 +100,19 @@ export class LeadsService {
       localTime: '02:45 PM CST',
       fleetSize,
       tags: leadTags,
-      status: row.is_dnc ? 'dnc' : statusMap[row.status] ?? 'new',
+      status: domainStatus,
+      qualificationStatus: (row.status === 'COMMERCIAL_DISCUSSION' || row.status === 'TECHNICAL_EVALUATION' ? 'Qualified' : (row.temperature === 'HOT' ? 'Hot Prospect' : 'Standard')),
+      isDnc,
       priority: (row.priority as Lead['priority']) || 'medium',
       campaignId: campaignInfo?.id || (row as any).campaign_id || undefined,
       campaignName: campaignInfo?.name || (row as any).campaign_name || undefined,
       attempts: 0,
       maxAttempts: 4,
-      lastOutcome: row.is_dnc ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}` : undefined,
+      lastOutcome: isDnc ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}` : undefined,
+      organizationId: row.organization_id || undefined,
+      source: row.source || 'Direct',
+      createdAt: row.created_at || undefined,
+      updatedAt: row.updated_at || undefined,
     };
   }
 

@@ -69,10 +69,10 @@ export class AuthService {
       .eq('id', data.user.id)
       .maybeSingle();
 
-    // Query organization_memberships for role
+    // Query organization_memberships for role and active organization
     const { data: membership } = await this.supabase
       .from('organization_memberships')
-      .select('role')
+      .select('role, organization_id')
       .eq('user_id', data.user.id)
       .maybeSingle();
 
@@ -84,6 +84,7 @@ export class AuthService {
       name: (profile && 'display_name' in profile && typeof profile.display_name === 'string' ? profile.display_name : null) ?? data.user.email?.split('@')[0] ?? 'Operator',
       email: data.user.email ?? validated.email,
       role,
+      organizationId: membership?.organization_id || undefined,
       title: 'Senior Outbound Specialist',
       avatarUrl: (profile && 'avatar_url' in profile && typeof profile.avatar_url === 'string' ? profile.avatar_url : null) ?? mockCurrentUser.avatarUrl,
       status: 'active',
@@ -131,7 +132,7 @@ export class AuthService {
 
     const { data: membership } = await this.supabase
       .from('organization_memberships')
-      .select('role')
+      .select('role, organization_id')
       .eq('user_id', data.user.id)
       .maybeSingle();
 
@@ -143,6 +144,7 @@ export class AuthService {
       name: (profile && 'display_name' in profile && typeof profile.display_name === 'string' ? profile.display_name : null) ?? data.user.email?.split('@')[0] ?? 'Operator',
       email: data.user.email ?? '',
       role,
+      organizationId: membership?.organization_id || undefined,
       title: 'Senior Outbound Specialist',
       avatarUrl: (profile && 'avatar_url' in profile && typeof profile.avatar_url === 'string' ? profile.avatar_url : null) ?? mockCurrentUser.avatarUrl,
       status: 'active',

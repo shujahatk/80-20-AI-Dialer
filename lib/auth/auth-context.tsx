@@ -5,6 +5,7 @@ import type { User } from '@/types';
 import { authService, type AuthSessionResult } from '@/services/auth/auth.service';
 import type { LoginInput } from '@/lib/validation';
 import { mockCurrentUser } from '@/lib/mock';
+import { isMockDevMode } from '@/lib/env';
 
 interface AuthContextValue {
   user: User | null;
@@ -23,9 +24,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = async () => {
     try {
       const currentUser = await authService.getCurrentUser();
-      setUser(currentUser ?? mockCurrentUser);
+      setUser(currentUser ?? (isMockDevMode() ? mockCurrentUser : null));
     } catch {
-      setUser(mockCurrentUser);
+      setUser(isMockDevMode() ? mockCurrentUser : null);
     } finally {
       setIsLoading(false);
     }

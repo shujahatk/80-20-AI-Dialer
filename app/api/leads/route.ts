@@ -35,6 +35,11 @@ export async function GET(req: NextRequest) {
     const region = searchParams.get('region') || undefined;
     const rawSource = searchParams.get('source')?.trim();
     const source = rawSource && rawSource.toLowerCase() !== 'all' ? rawSource : undefined;
+    const rawSortBy = searchParams.get('sortBy')?.trim();
+    const sortBy = ['created_at', 'name', 'company', 'status', 'updated_at'].includes(rawSortBy || '')
+      ? (rawSortBy as any)
+      : undefined;
+    const sortOrder = searchParams.get('sortOrder')?.toLowerCase() === 'asc' ? 'asc' : 'desc';
     const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!, 10) : 25;
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!, 10) : 1;
     const offset = (page - 1) * limit;
@@ -47,18 +52,28 @@ export async function GET(req: NextRequest) {
       country,
       region,
       source,
+      sortBy,
+      sortOrder,
       limit,
       offset,
     });
 
+    const totalPages = Math.ceil(result.totalCount / limit) || 1;
+
     return NextResponse.json({
       success: true,
       data: result.leads,
+      pagination: {
+        page,
+        limit,
+        totalCount: result.totalCount,
+        totalPages,
+      },
       totalCount: result.totalCount,
       metrics: result.metrics,
       page,
       limit,
-      totalPages: Math.ceil(result.totalCount / limit) || 1,
+      totalPages,
     }, {
       headers: NO_CACHE_HEADERS,
     });

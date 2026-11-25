@@ -131,7 +131,10 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-on-surface">{lead.company}</TableCell>
-                    <TableCell className="tabular-nums text-on-surface">{lead.phone}</TableCell>
+                    <TableCell className="min-w-[140px]">
+                      <div className="tabular-nums font-medium text-on-surface">{lead.phone || '—'}</div>
+                      {lead.email && <div className="truncate text-[11px] text-on-surface-variant">{lead.email}</div>}
+                    </TableCell>
                     <TableCell>
                       <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
                     </TableCell>

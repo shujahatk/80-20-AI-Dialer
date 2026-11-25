@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, LeadStatusDb, LeadPriorityDb } from '@/lib/supabase/types';
+import { toDomainLeadStatus, toDbLeadStatuses, toDbLeadStatus } from '@/lib/lead-status';
 
 export type LeadRow = Database['public']['Tables']['leads']['Row'];
 export type LeadInsert = Database['public']['Tables']['leads']['Insert'];
@@ -24,6 +25,8 @@ export interface LeadFilterOptions {
   tag?: string;
   limit?: number;
   offset?: number;
+  sortBy?: 'created_at' | 'name' | 'company' | 'status' | 'updated_at';
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**
@@ -49,26 +52,7 @@ export function sanitizeRemoteLeadPayload(input: Record<string, any>): Record<st
         ? Boolean(input.is_dnc)
         : false;
 
-  const rawStatus = input.status ? String(input.status).toUpperCase() : 'NEW';
-  const statusMap: Record<string, string> = {
-    NEW: 'NEW',
-    CONTACTED: 'CONTACTED',
-    ENGAGED: 'ENGAGED',
-    TECHNICAL_EVALUATION: 'TECHNICAL_EVALUATION',
-    COMMERCIAL_DISCUSSION: 'COMMERCIAL_DISCUSSION',
-    QUALIFIED: 'COMMERCIAL_DISCUSSION',
-    CONVERTED: 'COMMERCIAL_DISCUSSION',
-    UNQUALIFIED: 'CONTACTED',
-    DNC: 'CONTACTED',
-    IN_PROGRESS: 'CONTACTED',
-    QUEUED: 'NEW',
-    CONFIRMED: 'COMMERCIAL_DISCUSSION',
-    INTERESTED: 'ENGAGED',
-    FOLLOW_UP: 'ENGAGED',
-    CALLBACK: 'CONTACTED',
-    NOT_INTERESTED: 'CONTACTED',
-  };
-  const status = statusMap[rawStatus] || 'NEW';
+  const status = toDbLeadStatus(input.status);
 
   const clean: Record<string, any> = {};
   if (input.id) clean.id = input.id;
@@ -106,19 +90,9 @@ export class LeadsRepository {
     const firstName = row.first_name || nameParts[0] || '';
     const lastName = row.last_name || nameParts.slice(1).join(' ') || '';
 
-    // Map uppercase remote enum status to lowercase domain status for UI
-    let domainStatus = 'new';
-    if (row.do_not_call) {
-      domainStatus = 'dnc';
-    } else if (row.status === 'COMMERCIAL_DISCUSSION' || row.status === 'TECHNICAL_EVALUATION') {
-      domainStatus = 'qualified';
-    } else if (row.status === 'ENGAGED') {
-      domainStatus = 'engaged';
-    } else if (row.status === 'CONTACTED') {
-      domainStatus = 'contacted';
-    } else {
-      domainStatus = 'new';
-    }
+    // Canonical mapping from remote status & DNC to domain status
+    const isDnc = Boolean(row.is_dnc ?? row.do_not_call);
+    const domainStatus = toDomainLeadStatus(row.status, isDnc);
 
     return {
       ...row,
@@ -164,26 +138,7 @@ export class LeadsRepository {
     }
 
     if (options.status && options.status.toLowerCase() !== 'all') {
-      const lower = options.status.toLowerCase();
-      const validDbStatuses: LeadStatusDb[] = [];
-
-      if (lower === 'new' || lower === 'queued') {
-        validDbStatuses.push('NEW');
-      } else if (lower === 'contacted' || lower === 'in_progress' || lower === 'dialing' || lower === 'connected') {
-        validDbStatuses.push('CONTACTED');
-      } else if (lower === 'engaged') {
-        validDbStatuses.push('ENGAGED');
-      } else if (lower === 'qualified') {
-        validDbStatuses.push('ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION');
-      } else if (lower === 'meeting-booked' || lower === 'converted' || lower === 'commercial_discussion') {
-        validDbStatuses.push('COMMERCIAL_DISCUSSION');
-      } else {
-        const upper = options.status.toUpperCase();
-        if (['NEW', 'CONTACTED', 'ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION'].includes(upper)) {
-          validDbStatuses.push(upper as LeadStatusDb);
-        }
-      }
-
+      const validDbStatuses = toDbLeadStatuses(options.status);
       if (validDbStatuses.length > 0) {
         query = query.in('status', validDbStatuses);
       }
@@ -197,7 +152,9 @@ export class LeadsRepository {
       }
     }
 
-    query = query.order('created_at', { ascending: false });
+    const sortBy = options.sortBy || 'created_at';
+    const ascending = options.sortOrder === 'asc';
+    query = query.order(sortBy, { ascending });
 
     const limit = options.limit ?? 25;
     const offset = options.offset ?? 0;

@@ -58,7 +58,7 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
             value={search}
             onChange={(e) => onSearchChange?.(e.target.value)}
             className="h-9 w-full rounded-md border border-border bg-input pl-9 pr-3 text-[13.5px] text-on-surface placeholder:text-on-surface-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-            placeholder="Search leads by name, company, or phone..."
+            placeholder="Search leads by name, company, email, or phone..."
             type="text"
           />
           {search && (

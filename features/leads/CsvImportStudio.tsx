@@ -677,7 +677,7 @@ export const CsvImportStudio: React.FC = () => {
               <h2 className="text-2xl font-bold text-on-surface">
                 {importResult.inserted === 0 && importResult.updated === 0
                   ? importResult.skipped > 0 && importResult.invalid === 0
-                    ? `All ${importResult.skipped} Contacts Already Exist in CRM`
+                    ? 'These contacts already exist in your CRM. No duplicate records were created.'
                     : 'No Leads Added to Database'
                   : importResult.status === 'partial_success'
                   ? `Import Completed: ${importResult.inserted} Leads Added (Partial Enrollment)`
@@ -686,7 +686,7 @@ export const CsvImportStudio: React.FC = () => {
               <p className="text-sm text-on-surface-variant mt-1 max-w-xl">
                 {importResult.inserted === 0 && importResult.updated === 0
                   ? importResult.skipped > 0 && importResult.invalid === 0
-                    ? `All ${importResult.totalRows} contacts from your CSV are already safely saved in your 80/20 AI Dialer workspace. Existing records were preserved without creating duplicate leads.`
+                    ? `All ${importResult.skipped} contacts from your CSV are already safely saved in your workspace. Existing records were preserved without creating duplicate leads.`
                     : `0 new leads were added. All ${importResult.totalRows} rows were skipped as duplicates (${importResult.skipped}) or invalid (${importResult.invalid}).`
                   : importResult.status === 'partial_success'
                   ? 'Your leads have been safely stored in CRM, but campaign enrollment was incomplete.'
@@ -783,6 +783,16 @@ export const CsvImportStudio: React.FC = () => {
                         <span className="text-[10px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
                           {lead.matchReason || 'Saved in CRM'}
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            router.push(`/leads?search=${encodeURIComponent(lead.name)}`);
+                          }}
+                          className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-0.5 px-2 py-0.5 rounded bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer"
+                        >
+                          <span>Open in CRM</span>
+                          <Icon name="arrow_forward" size={12} />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -843,11 +853,20 @@ export const CsvImportStudio: React.FC = () => {
                 type="button"
                 id="viewLeadsTableBtn"
                 onClick={() => {
-                  window.location.href = '/leads';
+                  const firstMatch = importResult.matchedExistingLeads?.[0];
+                  if (firstMatch?.name && importResult.inserted === 0 && importResult.skipped > 0) {
+                    router.push(`/leads?search=${encodeURIComponent(firstMatch.name)}`);
+                  } else {
+                    router.push('/leads');
+                  }
                 }}
                 className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover shadow-md cursor-pointer transition-colors flex items-center gap-1.5"
               >
-                <span>View Leads in CRM Table</span>
+                <span>
+                  {importResult.inserted === 0 && importResult.skipped > 0
+                    ? 'View Existing Leads'
+                    : 'View Leads in CRM Table'}
+                </span>
                 <Icon name="arrow_forward" size={16} />
               </button>
               <button

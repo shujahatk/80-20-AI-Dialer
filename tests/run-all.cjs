@@ -19,6 +19,7 @@ const suites = [
   { name: 'Phase 1 Production Database Foundation Suite', file: path.join(__dirname, 'test-phase1-production-foundation.cjs') },
   { name: 'Phase 2 Campaign Pipeline & Concurrency Suite', file: path.join(__dirname, 'test-phase2-campaign-pipeline.cjs') },
   { name: 'Phase 2 Disposable PostgreSQL (PGlite) Database Suite', file: path.join(__dirname, 'test-phase2-disposable-postgres.cjs') },
+  { name: 'CRM Architecture & Production Restructure Suite', file: path.join(__dirname, 'test-crm-architecture-restructure.cjs') },
 ];
 
 let allPassed = true;
