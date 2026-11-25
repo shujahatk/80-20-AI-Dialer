@@ -164,17 +164,29 @@ export class LeadsRepository {
     }
 
     if (options.status && options.status !== 'All') {
-      const upper = options.status.toUpperCase();
       const lower = options.status.toLowerCase();
-      const allowed: string[] = [options.status, upper, lower];
-      if (lower === 'qualified') {
-        allowed.push('ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION');
-      } else if (lower === 'new') {
-        allowed.push('NEW', 'QUEUED', 'queued');
-      } else if (lower === 'contacted') {
-        allowed.push('CONTACTED', 'IN_PROGRESS', 'in_progress');
+      const validDbStatuses: LeadStatusDb[] = [];
+
+      if (lower === 'new' || lower === 'queued') {
+        validDbStatuses.push('NEW');
+      } else if (lower === 'contacted' || lower === 'in_progress' || lower === 'dialing' || lower === 'connected') {
+        validDbStatuses.push('CONTACTED');
+      } else if (lower === 'engaged') {
+        validDbStatuses.push('ENGAGED');
+      } else if (lower === 'qualified') {
+        validDbStatuses.push('ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION');
+      } else if (lower === 'meeting-booked' || lower === 'converted' || lower === 'commercial_discussion') {
+        validDbStatuses.push('COMMERCIAL_DISCUSSION');
+      } else {
+        const upper = options.status.toUpperCase();
+        if (['NEW', 'CONTACTED', 'ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION'].includes(upper)) {
+          validDbStatuses.push(upper as LeadStatusDb);
+        }
       }
-      query = query.in('status', Array.from(new Set(allowed)) as LeadStatusDb[]);
+
+      if (validDbStatuses.length > 0) {
+        query = query.in('status', validDbStatuses);
+      }
     }
 
     if (typeof options.isDnc === 'boolean') {
