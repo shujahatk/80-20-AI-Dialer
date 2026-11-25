@@ -30,12 +30,21 @@ export class AgentsRepository {
   }
 
   async getById(id: string, orgId?: string): Promise<AgentRow | null> {
-    let query = this.supabase.from('ai_agents').select('*').eq('id', id);
+    if (!id || typeof id !== 'string') return null;
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let query = this.supabase.from('ai_agents').select('*');
+    if (isUuid) {
+      query = query.eq('id', id);
+    } else {
+      query = query.eq('retell_agent_id', id);
+    }
     if (orgId) {
       query = query.eq('organization_id', orgId);
     }
     const { data, error } = await query.maybeSingle();
-    if (error) throw error;
+    if (error) {
+      return null;
+    }
     return (data as AgentRow | null) ?? null;
   }
 

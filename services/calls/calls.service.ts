@@ -191,10 +191,14 @@ export class CallsService {
         let retellAgentId = effectiveAiAgentId;
         let agentVersionId: string | null = null;
 
-        const agent = await this.agentsRepo.getById(effectiveAiAgentId, orgId);
-        if (agent) {
-          retellAgentId = agent.retell_agent_id || agent.id;
-          agentVersionId = agent.active_version_id || null;
+        try {
+          const agent = await this.agentsRepo.getById(effectiveAiAgentId, orgId);
+          if (agent) {
+            retellAgentId = agent.retell_agent_id || agent.id;
+            agentVersionId = agent.active_version_id || null;
+          }
+        } catch (agentErr) {
+          console.warn('[CallsService] ai_agents lookup bypassed:', agentErr);
         }
 
         const dispatchResult = await retellCallService.startOutboundCall({
