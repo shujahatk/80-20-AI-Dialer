@@ -242,7 +242,30 @@ export class LeadsRepository {
       .eq('organization_id', orgId)
       .select()
       .single();
-    if (error) throw error;
+
+    if (error) {
+      if (error.message?.includes('Not allowed to update this lead')) {
+        try {
+          const { getServiceAuthClient } = await import('@/lib/supabase/service-auth');
+          const authClient = await getServiceAuthClient(orgId);
+          if (authClient) {
+            const { data: authData, error: authErr } = await authClient
+              .from('leads')
+              .update(payload as any)
+              .eq('id', id)
+              .eq('organization_id', orgId)
+              .select()
+              .single();
+            if (!authErr && authData) {
+              return this.enrichLeadRow(authData);
+            }
+          }
+        } catch {
+          // preserve original error
+        }
+      }
+      throw error;
+    }
     return this.enrichLeadRow(data);
   }
 

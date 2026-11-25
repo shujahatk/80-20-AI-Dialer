@@ -546,11 +546,11 @@ export class SupabaseEmailStore {
     if (!call) return null;
     const organizationId = String(call.organization_id);
     const [transcriptResult, leadResult, campaignResult, eventResult] = await Promise.all([
-      db().from('call_transcripts').select('speaker, text, sequence_number').eq('call_id', callId).order('sequence_number'),
+      db().from('call_transcripts').select('*').eq('call_session_id', callId).order('created_at', { ascending: true }),
       call.lead_id
         ? db()
           .from('leads')
-          .select('id, name, company, email, city, do_not_call, notes, metadata, consent_at')
+          .select('id, name, company, email, city, do_not_call, notes, consent_at')
           .eq('id', call.lead_id)
           .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
@@ -565,18 +565,34 @@ export class SupabaseEmailStore {
     ]);
     const transcript: TranscriptTurn[] = rows<Record<string, unknown>>(transcriptResult, 'Transcript')
       .map((row) => {
-        const speaker = String(row.speaker);
-        if (speaker !== 'ai' && speaker !== 'lead' && speaker !== 'operator' && speaker !== 'system') return null;
-        return { speaker, text: String(row.text ?? '') };
+        let speaker = String(row.speaker || '');
+        let text = String(row.text ?? '');
+        if (!speaker && row.body) {
+          const bodyStr = String(row.body);
+          const colonIdx = bodyStr.indexOf(':');
+          if (colonIdx > 0) {
+            speaker = bodyStr.slice(0, colonIdx).trim().toLowerCase();
+            text = bodyStr.slice(colonIdx + 1).trim();
+          } else {
+            speaker = 'lead';
+            text = bodyStr.trim();
+          }
+        }
+        if (speaker === 'agent') speaker = 'ai';
+        if (speaker === 'user') speaker = 'lead';
+        if (speaker !== 'ai' && speaker !== 'lead' && speaker !== 'operator' && speaker !== 'system') {
+          speaker = 'lead';
+        }
+        return { speaker: speaker as TranscriptTurn['speaker'], text };
       })
-      .filter((turn): turn is TranscriptTurn => Boolean(turn));
+      .filter((turn): turn is TranscriptTurn => Boolean(turn && turn.text));
     const leadRow = one<Record<string, unknown>>(leadResult, 'Lead');
     const campaignRow = one<Record<string, unknown>>(campaignResult, 'Campaign');
     const analyzed =
       analyzedHint || rows<Record<string, unknown>>(eventResult, 'Call events').some((row) => row.action === 'call.call_analysis_ready' || row.action === 'call_analysis_ready');
     const [firstName = '', ...nameRest] = (leadRow?.name ? String(leadRow.name) : '').split(' ');
     const lastName = nameRest.join(' ');
-    const leadMeta = (leadRow?.metadata as Record<string, unknown>) ?? {};
+    const leadMeta = (leadRow?.custom_fields as Record<string, unknown>) ?? {};
     const lead: FollowUpLead | null = leadRow
       ? {
         id: String(leadRow.id),
