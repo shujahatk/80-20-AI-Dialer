@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { authenticatedFetch } from '@/lib/api/client';
 import { browserDeviceManager } from '@/services/telephony/device-manager';
 import { getCallStateDisplayLabel } from '@/services/telephony/call-events';
 import type { CallState } from '@/services/telephony/types';
@@ -8,6 +9,7 @@ import type { LeadRow } from '@/repositories/leads.repository';
 
 export interface ActiveCallContext {
   callId: string;
+  retellCallId?: string | null;
   lead: LeadRow;
   campaignId?: string | null;
   destinationNumber: string;
@@ -95,70 +97,46 @@ export function useTelephony() {
   }, [initDevice]);
 
   /**
-   * Start a call to a lead
+   * Start an outbound Retell AI phone call to a lead via PSTN carrier infrastructure
    */
-  const startCall = async (leadId: string, campaignId?: string | null) => {
+  const startCall = async (leadId: string, campaignId?: string | null, phoneNumber?: string | null) => {
     setErrorMessage(null);
     setCallState('preparing');
 
     try {
-      // 1. Initiate call record on server
-      const res = await fetch('/api/calls', {
+      // 1. Initiate outbound call through authenticated server API
+      const res = await authenticatedFetch('/api/calls', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId, campaignId, recordCall: true }),
+        body: JSON.stringify({ leadId, campaignId, phoneNumber, recordCall: true }),
       });
 
-      const json = await res.json();
-      if (!json.success || !json.data) {
-        const errMsg = json.error?.message || (typeof json.error === 'string' ? json.error : null) || 'Failed to initialize call';
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success || !json.data) {
+        const corrInfo = json.error?.correlationId ? ` [Correlation: ${json.error.correlationId}]` : '';
+        const errMsg = (json.error?.message || (typeof json.error === 'string' ? json.error : null) || 'Failed to initiate outbound call') + corrInfo;
         throw new Error(errMsg);
       }
 
       const { call, lead, destinationNumber, retellCallId, provider } = json.data;
       setActiveCall({
         callId: call.id,
+        retellCallId: retellCallId || call.retell_call_id,
         lead,
         campaignId,
         destinationNumber,
       });
 
-      const isRetellAiCall = Boolean(
-        retellCallId ||
-        call.retell_call_id ||
-        provider === 'retell' ||
-        call.provider === 'retell'
-      );
-
-      if (isRetellAiCall) {
-        setCallState('dialing');
-        if (timerRef.current) clearInterval(timerRef.current);
-        setDurationSeconds(0);
-
-        // Retell carrier PSTN call active on network
-        setTimeout(() => {
-          setCallState('ringing');
-        }, 1500);
-
-        setTimeout(() => {
-          setCallState('connected');
-          timerRef.current = setInterval(() => {
-            setDurationSeconds((prev) => prev + 1);
-          }, 1000);
-        }, 3200);
-      } else {
-        // 2. Connect browser WebRTC device for human operator calling
-        await browserDeviceManager.makeCall({
-          destinationNumber,
-          leadId: lead.id,
-          callId: call.id,
-          campaignId,
-          recordCall: true,
-        });
-      }
+      // Retell carrier PSTN call successfully registered and dispatched to provider
+      setCallState('dialing');
+      setDurationSeconds(0);
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = setInterval(() => {
+        setDurationSeconds((prev) => prev + 1);
+      }, 1000);
     } catch (err: unknown) {
       setCallState('failed');
-      const msg = err instanceof Error ? err.message : 'Call connection failed';
+      const msg = err instanceof Error ? err.message : 'Outbound call initiation failed';
       setErrorMessage(msg);
       throw err;
     }

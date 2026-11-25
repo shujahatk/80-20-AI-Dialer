@@ -11,6 +11,7 @@ interface ProgressionRibbonProps {
   agentName?: string;
   durationSeconds?: number;
   embedded?: boolean;
+  errorMessage?: string | null;
 }
 
 export const ProgressionRibbon: React.FC<ProgressionRibbonProps> = ({
@@ -18,6 +19,7 @@ export const ProgressionRibbon: React.FC<ProgressionRibbonProps> = ({
   conversationState = 'idle',
   durationSeconds = 0,
   embedded = false,
+  errorMessage,
 }) => {
   const formatTimer = (totalSec: number) => {
     const mins = Math.floor(totalSec / 60);
@@ -88,7 +90,7 @@ export const ProgressionRibbon: React.FC<ProgressionRibbonProps> = ({
       default:
         return {
           label: 'FAILED',
-          desc: 'Could not establish connection',
+          desc: errorMessage || 'Could not establish connection',
           badgeBg: 'bg-error/15 text-error border-error/30',
           dotColor: 'bg-error',
           icon: 'error',

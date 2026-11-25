@@ -40,7 +40,7 @@ export class CallsService {
   /**
    * Asserts lead callability with final runtime DNC and active call guard
    */
-  async assertLeadCallable(leadId: string, organizationId: string) {
+  async assertLeadCallable(leadId: string, organizationId: string, phoneNumber?: string | null) {
     let lead = await this.leadsRepo.getById(leadId, organizationId);
 
     // Support ad-hoc manual dial numbers by creating or resolving a CRM lead
@@ -79,7 +79,8 @@ export class CallsService {
       throw new Error(`Lead '${lead.full_name}' is on the Do Not Call (DNC) list.`);
     }
 
-    const phoneNorm = normalizePhone(lead.phone_e164 || lead.phone, lead.country || 'US');
+    const rawPhone = phoneNumber || lead.phone_e164 || lead.phone;
+    const phoneNorm = normalizePhone(rawPhone, lead.country || 'US');
     if (!phoneNorm.isValid || !phoneNorm.e164) {
       throw new Error(`Lead '${lead.full_name}' has an invalid callable phone number.`);
     }
@@ -114,7 +115,7 @@ export class CallsService {
     }
 
     // 1. Runtime Callability, DNC & Active Call Guard
-    const { lead, phoneNorm } = await this.assertLeadCallable(params.leadId, orgId);
+    const { lead, phoneNorm } = await this.assertLeadCallable(params.leadId, orgId, params.phoneNumber);
 
     const env = getServerEnv();
     const effectiveAiAgentId =
@@ -139,12 +140,16 @@ export class CallsService {
     }
 
     // 3. Create Call record in DB with verified human approval evidence.
+    // Ensure agent_id is a valid UUID before storing in call_sessions.agent_id.
     const now = new Date().toISOString();
+    const isAgentUuid = effectiveAiAgentId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(effectiveAiAgentId);
+    const dbAgentId = isAgentUuid ? effectiveAiAgentId : null;
+
     const callRecord = await this.repo.create({
       organization_id: orgId,
       lead_id: lead.id,
       campaign_id: params.campaignId || null,
-      agent_id: effectiveAiAgentId || null,
+      agent_id: dbAgentId,
       created_by: params.operatorId,
       provider: 'live',
       direction: 'outbound',

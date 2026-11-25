@@ -127,8 +127,8 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
 
       {/* Footer Info */}
       <div className="w-full flex items-center justify-between text-[12px] text-on-surface-muted pt-3 border-t border-border">
-        <span>Browser voice channel</span>
-        <span>{isConnected ? 'Live audio' : 'Standby'}</span>
+        <span>Carrier telephony channel</span>
+        <span>{isConnected ? 'Retell AI Live Call' : isDialing ? 'Connecting via Twilio SIP Trunk...' : 'Retell Outbound Standby'}</span>
       </div>
     </div>
   );

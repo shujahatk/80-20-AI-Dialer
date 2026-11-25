@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     if (!isAuthContext(auth)) return auth;
 
     const body = await request.json();
-    const { leadId, campaignId, aiAgentId, recordCall } = body;
+    const { leadId, campaignId, aiAgentId, recordCall, phoneNumber } = body;
 
     if (!leadId) {
       return NextResponse.json(
@@ -51,16 +51,27 @@ export async function POST(request: NextRequest) {
       campaignId,
       aiAgentId,
       recordCall: recordCall !== false,
+      phoneNumber,
       operatorId: auth.user.id,
       organizationId: auth.organizationId,
     });
 
     return NextResponse.json({ success: true, data: result });
   } catch (err: unknown) {
-    console.error('[API /api/calls POST] Error:', err);
-    const message = err instanceof Error ? err.message : 'Failed to initiate call';
+    const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let message = 'Failed to initiate call';
+    if (err instanceof Error) {
+      message = err.message;
+    } else if (typeof err === 'object' && err !== null && 'message' in err) {
+      message = String((err as any).message);
+    } else if (typeof err === 'string') {
+      message = err;
+    }
+
+    console.error(`[API /api/calls POST] [${correlationId}] Call dispatch error:`, err);
+
     return NextResponse.json(
-      { success: false, error: { message } },
+      { success: false, error: { message, correlationId } },
       { status: message.includes('Do Not Call') || message.includes('archived') || message.includes('invalid') ? 400 : 500 }
     );
   }

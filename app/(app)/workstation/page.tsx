@@ -152,7 +152,7 @@ function WorkstationCockpit() {
 
             if (autodialParam === 'true' && !hasAutoDialedRef.current && row.status !== 'dnc') {
               hasAutoDialedRef.current = true;
-              startCall(row.id, activeCampaign?.id).catch(console.error);
+              startCall(row.id, activeCampaign?.id, String(row.phone_e164 || row.phone || '')).catch(console.error);
             }
             return;
           }
@@ -184,7 +184,7 @@ function WorkstationCockpit() {
 
         if (autodialParam === 'true' && !hasAutoDialedRef.current) {
           hasAutoDialedRef.current = true;
-          startCall(adHocLead.id as string, activeCampaign?.id).catch(console.error);
+          startCall(adHocLead.id as string, activeCampaign?.id, String(adHocLead.phone_e164 || adHocLead.phone || '')).catch(console.error);
         }
       }
     }
@@ -304,6 +304,7 @@ function WorkstationCockpit() {
             callState={callState}
             conversationState={conversationState}
             durationSeconds={durationSeconds}
+            errorMessage={errorMessage}
           />
 
           <AudioVisualizer
@@ -327,7 +328,7 @@ function WorkstationCockpit() {
             onStartCall={async () => {
               if (!currentLead.id || currentLead.status === 'dnc') return;
               try {
-                await startCall(currentLead.id, activeCampaign?.id);
+                await startCall(currentLead.id, activeCampaign?.id, currentLead.phone ? String(currentLead.phone) : undefined);
               } catch {
                 // error is captured in useTelephony errorMessage state
               }

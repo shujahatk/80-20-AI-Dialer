@@ -153,6 +153,64 @@ export function normalizePhone(
     }
   }
 
+  // Pakistan handling (PK) - standard 11-digit mobile starting with 03 (e.g., 03419229384 -> +923419229384)
+  // or 12 digits starting with 923...
+  if (
+    countryUpper === 'PK' ||
+    countryUpper === 'PAKISTAN' ||
+    (digits.length === 11 && digits.startsWith('03')) ||
+    (digits.length === 12 && digits.startsWith('923'))
+  ) {
+    if (digits.length === 11 && digits.startsWith('0')) {
+      const e164 = `+92${digits.slice(1)}`;
+      return {
+        raw,
+        normalized: e164,
+        e164,
+        isValid: true,
+        country: 'PK',
+      };
+    }
+    if (digits.length === 12 && digits.startsWith('92')) {
+      const e164 = `+${digits}`;
+      return {
+        raw,
+        normalized: e164,
+        e164,
+        isValid: true,
+        country: 'PK',
+      };
+    }
+  }
+
+  // Germany handling (DE) - e.g. 08252... -> +498252... or 498252... -> +498252...
+  if (
+    countryUpper === 'DE' ||
+    countryUpper === 'GERMANY' ||
+    (digits.length >= 10 && digits.startsWith('49'))
+  ) {
+    if (digits.startsWith('49')) {
+      const e164 = `+${digits}`;
+      return {
+        raw,
+        normalized: e164,
+        e164,
+        isValid: true,
+        country: 'DE',
+      };
+    }
+    if (digits.startsWith('0')) {
+      const e164 = `+49${digits.slice(1)}`;
+      return {
+        raw,
+        normalized: e164,
+        e164,
+        isValid: true,
+        country: 'DE',
+      };
+    }
+  }
+
   // Default fallback: If 10 digits and default country is US, treat as US standard
   if (digits.length === 10) {
     const e164 = `+1${digits}`;
@@ -175,6 +233,24 @@ export function normalizePhone(
       isValid: true,
       country: 'US',
     };
+  }
+
+  // International standard digits without leading '+' (between 11 and 15 digits)
+  // Check common country codes (e.g., 92, 49, 44, 358, 33, 61, 81)
+  if (digits.length >= 11 && digits.length <= 15) {
+    const commonPrefixes = ['92', '49', '44', '358', '33', '61', '81', '39', '48', '34'];
+    for (const prefix of commonPrefixes) {
+      if (digits.startsWith(prefix)) {
+        const e164 = `+${digits}`;
+        return {
+          raw,
+          normalized: e164,
+          e164,
+          isValid: true,
+          country: detectCountryFromE164(e164),
+        };
+      }
+    }
   }
 
   // If ambiguous without country code, do not invent country code silently
@@ -208,12 +284,16 @@ export function formatDisplayPhone(phone: string | null | undefined): string {
   if (clean.startsWith('+44') && clean.length === 13) {
     return `+44 ${clean.slice(3, 7)} ${clean.slice(7)}`;
   }
+  if (clean.startsWith('+92') && clean.length === 13) {
+    return `+92 ${clean.slice(3, 6)} ${clean.slice(6)}`;
+  }
   return clean;
 }
 
 function detectCountryFromE164(e164: string): string {
   if (e164.startsWith('+1')) return 'US';
   if (e164.startsWith('+44')) return 'GB';
+  if (e164.startsWith('+92')) return 'PK';
   if (e164.startsWith('+61')) return 'AU';
   if (e164.startsWith('+49')) return 'DE';
   if (e164.startsWith('+33')) return 'FR';
