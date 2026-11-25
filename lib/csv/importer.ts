@@ -53,6 +53,7 @@ export interface ImportProblemRow {
   issueType: 'invalid_data' | 'duplicate_csv' | 'duplicate_database' | 'dnc_protected';
   issue: string;
   details: string;
+  matchedLeadId?: string;
 }
 
 export interface CsvPreviewSummary {
@@ -443,6 +444,7 @@ export function detectDuplicatesAndDnc(
           issueType: 'dnc_protected',
           issue: 'Do Not Call Protected',
           details: `Matches existing lead marked Do Not Call in database.`,
+          matchedLeadId: dbMatch.id,
         });
       } else {
         problemRows.push({
@@ -454,6 +456,7 @@ export function detectDuplicatesAndDnc(
           issueType: 'duplicate_database',
           issue: 'Existing Lead in Database',
           details: dbDupReason || 'Already exists in system.',
+          matchedLeadId: dbMatch.id,
         });
       }
 
@@ -491,7 +494,7 @@ export function detectDuplicatesAndDnc(
  * Generates downloadable error CSV content for failed, duplicate, or rejected rows.
  */
 export function generateErrorCsv(problemRows: ImportProblemRow[]): string {
-  const headers = ['Row Number', 'Status / Category', 'Issue Summary', 'Detailed Explanation', 'Contact Name', 'Company', 'Phone', 'Email'];
+  const headers = ['Row Number', 'Status / Category', 'Issue Summary', 'Detailed Explanation', 'Contact Name', 'Company', 'Phone', 'Email', 'Existing Lead ID'];
   const lines = [headers.join(',')];
 
   for (const p of problemRows) {
@@ -505,6 +508,7 @@ export function generateErrorCsv(problemRows: ImportProblemRow[]): string {
       escape(p.company),
       escape(p.phone),
       escape(p.email),
+      escape(p.matchedLeadId || ''),
     ].join(','));
   }
 

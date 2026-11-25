@@ -18,6 +18,15 @@ interface CsvImportModalProps {
   onImportComplete?: (count: number) => void;
 }
 
+interface MatchedExistingLead {
+  id: string;
+  name: string;
+  company: string;
+  phone?: string;
+  email?: string;
+  matchReason?: string;
+}
+
 interface ImportResultData {
   inserted: number;
   updated: number;
@@ -30,6 +39,7 @@ interface ImportResultData {
   existingDuplicates?: number;
   problemRows?: ImportProblemRow[];
   errorCsv?: string | null;
+  matchedExistingLeads?: MatchedExistingLead[];
 }
 
 const SAMPLE_CSV = `Full Name,Work Phone,Organisation,Role,Direct Email,City,Country
@@ -694,21 +704,29 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
             <div className="flex flex-col items-center justify-center py-6 gap-4 text-center">
               {importResult.inserted === 0 && importResult.updated === 0 ? (
                 <>
-                  <div className="w-14 h-14 rounded-full bg-amber-500/20 text-amber-500 flex items-center justify-center border border-amber-500/30">
-                    <Icon name="info" size={32} className="font-bold" />
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center border ${
+                    importResult.skipped > 0 && importResult.invalid === 0
+                      ? 'bg-success/20 text-success border-success/30'
+                      : 'bg-amber-500/20 text-amber-500 border-amber-500/30'
+                  }`}>
+                    <Icon name={importResult.skipped > 0 && importResult.invalid === 0 ? 'verified' : 'info'} size={32} className="font-bold" />
                   </div>
 
                   <div className="flex flex-col gap-1">
                     <h3 className="text-[18px] font-bold text-on-surface">
-                      No Leads Added to Database
+                      {importResult.skipped > 0 && importResult.invalid === 0
+                        ? `All ${importResult.skipped} Contacts Already Exist in CRM`
+                        : 'No Leads Added to Database'}
                     </h3>
                     <span className="text-[14px] text-on-surface-variant max-w-md">
-                      0 leads were imported. All {importResult.totalRows} records were skipped as duplicates ({importResult.skipped}) or invalid ({importResult.invalid}).
+                      {importResult.skipped > 0 && importResult.invalid === 0
+                        ? `All ${importResult.totalRows} contacts from your CSV are already safely stored in your CRM. Existing records were preserved without creating duplicates.`
+                        : `0 leads were imported. All ${importResult.totalRows} records were skipped as duplicates (${importResult.skipped}) or invalid (${importResult.invalid}).`}
                     </span>
                     {importResult.jobId && (
                       <div className="mt-1">
                         <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
-                          Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                          Audit Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
                         </span>
                       </div>
                     )}
@@ -732,7 +750,7 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                     {importResult.jobId && (
                       <div className="mt-1">
                         <span className="inline-block px-3 py-0.5 rounded-full bg-surface-elevated text-on-surface-variant text-[12px] font-mono border border-border">
-                          Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
+                          Audit Job ID: <strong className="text-on-surface">{importResult.jobId}</strong>
                         </span>
                       </div>
                     )}
@@ -777,6 +795,51 @@ export const CsvImportModal: React.FC<CsvImportModalProps> = ({
                   <span className="text-[12px] text-error">DNC Protected</span>
                 </div>
               </div>
+
+              {importResult.skipped > 0 && (
+                <div className="w-full max-w-2xl rounded-lg bg-surface-elevated border border-border overflow-hidden text-left shadow-sm">
+                  <div className="px-4 py-2.5 bg-surface-secondary border-b border-border flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Icon name="verified" size={15} className="text-primary" />
+                      <span className="text-xs font-semibold text-on-surface">
+                        Existing CRM Contacts ({importResult.skipped} Matched)
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-on-surface-variant">
+                      Saved in CRM
+                    </span>
+                  </div>
+                  <div className="divide-y divide-border max-h-48 overflow-y-auto">
+                    {(importResult.matchedExistingLeads && importResult.matchedExistingLeads.length > 0
+                      ? importResult.matchedExistingLeads
+                      : (importResult.problemRows || [])
+                          .filter((p) => p.issueType === 'duplicate_database')
+                          .map((p) => ({
+                            id: p.matchedLeadId || '',
+                            name: p.name,
+                            company: p.company,
+                            phone: p.phone !== 'None' ? p.phone : '',
+                            email: p.email !== 'None' ? p.email : '',
+                            matchReason: p.details || 'Existing Lead',
+                          }))
+                    ).map((lead, idx) => (
+                      <div key={lead.id || idx} className="px-3.5 py-2 flex items-center justify-between text-xs hover:bg-surface-secondary/50">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-on-surface">{lead.name}</span>
+                          <span className="text-[11px] text-on-surface-variant">
+                            {lead.company}
+                            {lead.email ? ` • ${lead.email}` : ''}
+                            {lead.phone ? ` • ${lead.phone}` : ''}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded border border-primary/20">
+                          {lead.matchReason || 'Saved in CRM'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {importResult.errorCsv && (
                 <div className="flex flex-col items-center gap-1.5 mt-1">

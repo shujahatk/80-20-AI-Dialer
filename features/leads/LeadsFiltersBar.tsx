@@ -126,11 +126,10 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
 
           <button
             onClick={() => setShowMoreFilters(!showMoreFilters)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] font-medium border transition-colors ${
-              showMoreFilters
-                ? 'bg-surface-secondary text-on-surface border-border-strong'
-                : 'bg-surface-elevated text-on-surface-variant hover:text-on-surface border-border'
-            }`}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] font-medium border transition-colors ${showMoreFilters
+              ? 'bg-surface-secondary text-on-surface border-border-strong'
+              : 'bg-surface-elevated text-on-surface-variant hover:text-on-surface border-border'
+              }`}
             type="button"
           >
             <Icon name="tune" size={16} />

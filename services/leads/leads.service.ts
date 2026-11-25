@@ -809,8 +809,8 @@ export class LeadsService {
     existingDuplicates: number;
     problemRows: ImportProblemRow[];
     errorCsv: string | null;
-    status: 'completed' | 'partial_success' | 'failed' | 'no_records_imported';
-    leadImportStatus: 'completed' | 'failed' | 'empty';
+    status: 'completed' | 'partial_success' | 'failed' | 'no_records_imported' | 'all_duplicates_skipped';
+    leadImportStatus: 'completed' | 'failed' | 'empty' | 'existing_duplicates_skipped';
     campaignEnrollmentStatus: 'completed' | 'failed' | 'not_requested' | 'skipped_capacity';
     campaignEnrollment?: {
       campaignId: string;
@@ -824,6 +824,14 @@ export class LeadsService {
     };
     importedLeadIds?: string[];
     recoveryGuidance?: string | null;
+    matchedExistingLeads?: Array<{
+      id: string;
+      name: string;
+      company: string;
+      phone?: string;
+      email?: string;
+      matchReason?: string;
+    }>;
   }> {
     const orgId = organizationId ?? this.defaultOrgId;
 
@@ -1012,12 +1020,57 @@ export class LeadsService {
     });
 
     if (rowsToImport.length === 0) {
-      const jobId = `job_empty_${Date.now()}`;
+      let jobId = `job_${Date.now()}`;
+      try {
+        const job = await this.importJobsRepo.create({
+          organization_id: orgId,
+          created_by: actorId ?? null,
+          filename,
+          status: 'completed',
+          row_count: annotatedRows.length,
+          inserted_count: 0,
+          duplicate_count: duplicateCount,
+          completed_at: new Date().toISOString(),
+        });
+        if (job?.id) {
+          jobId = job.id;
+        }
+      } catch (err) {
+        console.warn('[leads.service] Failed to persist all-duplicates import job:', err);
+      }
+
+      const matchedExistingLeads = annotatedRows
+        .filter((r) => r.isDuplicate && r.matchedExistingLeadId)
+        .map((r) => ({
+          id: r.matchedExistingLeadId!,
+          name: r.name,
+          company: r.company,
+          phone: r.phone || '',
+          email: r.email || '',
+          matchReason: r.duplicateReason || 'Existing lead in database',
+        }));
+
+      const invalidCount = annotatedRows.filter((r) => !r.isValid).length;
+      const allDuplicates = duplicateCount > 0 && invalidCount === 0;
+
+      await this.logAudit(orgId, actorId, 'leads.csv_imported', 'lead_import_jobs', jobId, {
+        filename,
+        jobId,
+        totalRows: normalized.length,
+        inserted: 0,
+        updated: 0,
+        skipped: duplicateCount,
+        dncProtected: dncCount,
+        invalid: invalidCount,
+        strategy,
+        status: allDuplicates ? 'all_duplicates_skipped' : 'no_records_imported',
+      });
+
       return {
         inserted: 0,
         updated: 0,
         skipped: duplicateCount,
-        invalid: annotatedRows.filter((r) => !r.isValid).length,
+        invalid: invalidCount,
         dncProtected: dncCount,
         jobId,
         totalRows: annotatedRows.length,
@@ -1025,9 +1078,10 @@ export class LeadsService {
         existingDuplicates,
         problemRows,
         errorCsv,
-        status: 'no_records_imported',
-        leadImportStatus: 'empty',
+        status: allDuplicates ? 'all_duplicates_skipped' : 'no_records_imported',
+        leadImportStatus: allDuplicates ? 'existing_duplicates_skipped' : 'empty',
         campaignEnrollmentStatus: 'not_requested',
+        matchedExistingLeads,
       };
     }
 
@@ -1244,6 +1298,17 @@ export class LeadsService {
     const isNone = inserted === 0 && updated === 0;
     const finalStatus = isNone ? 'no_records_imported' : isPartial ? 'partial_success' : 'completed';
 
+    const matchedExistingLeads = annotatedRows
+      .filter((r) => r.isDuplicate && r.matchedExistingLeadId)
+      .map((r) => ({
+        id: r.matchedExistingLeadId!,
+        name: r.name,
+        company: r.company,
+        phone: r.phone || '',
+        email: r.email || '',
+        matchReason: r.duplicateReason || 'Existing lead in database',
+      }));
+
     return {
       inserted,
       updated,
@@ -1264,6 +1329,7 @@ export class LeadsService {
       recoveryGuidance: isPartial
         ? `Leads were successfully imported into CRM (${inserted} inserted, ${updated} updated), but could not be enrolled into campaign "${targetCampaign?.name || targetCampaignId}": ${enrollmentError}. Leads are safely stored and can be assigned directly from the Campaigns tab without re-importing.`
         : null,
+      matchedExistingLeads,
     };
   }
 

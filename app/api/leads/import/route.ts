@@ -88,17 +88,22 @@ export async function POST(req: NextRequest) {
       );
 
       const isPartial = result.status === 'partial_success';
+      const isAllDuplicates = result.status === 'all_duplicates_skipped' ||
+        (result.inserted === 0 && result.updated === 0 && result.skipped > 0 && result.invalid === 0);
       const isNone = result.status === 'no_records_imported' || (result.inserted === 0 && result.updated === 0);
-      const message = isNone
-        ? `No new leads were imported. ${result.skipped} duplicate records skipped, ${result.invalid} invalid records rejected.`
-        : isPartial
-          ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
-          : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
+      const message = isAllDuplicates
+        ? `All ${result.skipped} records are already saved in your CRM. Existing contacts were preserved without creating duplicates.`
+        : isNone
+          ? `No new leads were imported. ${result.skipped} duplicate records skipped, ${result.invalid} invalid records rejected.`
+          : isPartial
+            ? `Partial Success: ${result.inserted} leads inserted, ${result.updated} updated in CRM, but campaign enrollment failed: ${result.campaignEnrollment?.error}`
+            : `Import complete: ${result.inserted} inserted, ${result.updated} updated, ${result.skipped} skipped`;
 
       return NextResponse.json({
         success: true,
         partialSuccess: isPartial,
         noneImported: isNone,
+        allDuplicatesSkipped: isAllDuplicates,
         message,
         data: result,
       }, {
