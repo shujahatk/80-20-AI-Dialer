@@ -49,5 +49,10 @@ supabase/.temp/
 *.tsbuildinfo
 next-env.d.ts
 
+# scratch and browser testing
+scratch/
+chrome-profile/
+
+
 .vercel
 .env*

@@ -87,8 +87,8 @@ export const CsvImportStudio: React.FC = () => {
         const campaignList = Array.isArray(data.data)
           ? data.data
           : Array.isArray(data.data?.campaigns)
-          ? data.data.campaigns
-          : [];
+            ? data.data.campaigns
+            : [];
         setCampaigns(campaignList);
       } catch {
         // Mock / offline fallback
@@ -650,15 +650,14 @@ export const CsvImportStudio: React.FC = () => {
         {step === 4 && importResult && (
           <div className="bg-surface rounded-xl border border-border p-8 flex flex-col items-center text-center gap-6">
             <div
-              className={`w-16 h-16 rounded-full flex items-center justify-center ${
-                importResult.inserted === 0 && importResult.updated === 0
-                  ? importResult.skipped > 0 && importResult.invalid === 0
-                    ? 'bg-success/20 text-success border border-success/30'
-                    : 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
-                  : importResult.status === 'partial_success'
+              className={`w-16 h-16 rounded-full flex items-center justify-center ${importResult.inserted === 0 && importResult.updated === 0
+                ? importResult.skipped > 0 && importResult.invalid === 0
+                  ? 'bg-success/20 text-success border border-success/30'
+                  : 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                : importResult.status === 'partial_success'
                   ? 'bg-amber-500/20 text-amber-500'
                   : 'bg-success/20 text-success'
-              }`}
+                }`}
             >
               <Icon
                 name={
@@ -667,8 +666,8 @@ export const CsvImportStudio: React.FC = () => {
                       ? 'verified'
                       : 'info'
                     : importResult.status === 'partial_success'
-                    ? 'warning'
-                    : 'check_circle'
+                      ? 'warning'
+                      : 'check_circle'
                 }
                 size={40}
               />
@@ -680,8 +679,8 @@ export const CsvImportStudio: React.FC = () => {
                     ? 'These contacts already exist in your CRM. No duplicate records were created.'
                     : 'No Leads Added to Database'
                   : importResult.status === 'partial_success'
-                  ? `Import Completed: ${importResult.inserted} Leads Added (Partial Enrollment)`
-                  : `Import Completed: ${importResult.inserted} ${importResult.inserted === 1 ? 'Lead' : 'Leads'} Added`}
+                    ? `Import Completed: ${importResult.inserted} Leads Added (Partial Enrollment)`
+                    : `Import Completed: ${importResult.inserted} ${importResult.inserted === 1 ? 'Lead' : 'Leads'} Added`}
               </h2>
               <p className="text-sm text-on-surface-variant mt-1 max-w-xl">
                 {importResult.inserted === 0 && importResult.updated === 0
@@ -689,8 +688,8 @@ export const CsvImportStudio: React.FC = () => {
                     ? `All ${importResult.skipped} contacts from your CSV are already safely saved in your workspace. Existing records were preserved without creating duplicate leads.`
                     : `0 new leads were added. All ${importResult.totalRows} rows were skipped as duplicates (${importResult.skipped}) or invalid (${importResult.invalid}).`
                   : importResult.status === 'partial_success'
-                  ? 'Your leads have been safely stored in CRM, but campaign enrollment was incomplete.'
-                  : `${importResult.inserted} leads successfully saved into CRM database.`}
+                    ? 'Your leads have been safely stored in CRM, but campaign enrollment was incomplete.'
+                    : `${importResult.inserted} leads successfully saved into CRM database.`}
               </p>
               {importResult.jobId && (
                 <div className="mt-2">
@@ -760,15 +759,15 @@ export const CsvImportStudio: React.FC = () => {
                   {(importResult.matchedExistingLeads && importResult.matchedExistingLeads.length > 0
                     ? importResult.matchedExistingLeads
                     : (importResult.problemRows || [])
-                        .filter((p) => p.issueType === 'duplicate_database')
-                        .map((p) => ({
-                          id: p.matchedLeadId || '',
-                          name: p.name,
-                          company: p.company,
-                          phone: p.phone !== 'None' ? p.phone : '',
-                          email: p.email !== 'None' ? p.email : '',
-                          matchReason: p.details || 'Existing Lead',
-                        }))
+                      .filter((p) => p.issueType === 'duplicate_database')
+                      .map((p) => ({
+                        id: p.matchedLeadId || '',
+                        name: p.name,
+                        company: p.company,
+                        phone: p.phone !== 'None' ? p.phone : '',
+                        email: p.email !== 'None' ? p.email : '',
+                        matchReason: p.details || 'Existing Lead',
+                      }))
                   ).map((lead, idx) => (
                     <div key={lead.id || idx} className="px-4 py-2.5 flex items-center justify-between text-xs hover:bg-surface-secondary/50">
                       <div className="flex flex-col">

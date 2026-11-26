@@ -55,6 +55,52 @@ export interface ClaimedLeadCandidate {
   attempts?: number;
 }
 
+export interface CampaignEmailConfig {
+  instructions?: string | null;
+  qualificationCriteria?: Record<string, unknown> | null;
+  requiredCommercialInfo?: string[] | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  companySignature?: string | null;
+  attachments?: string[] | null;
+}
+
+export function packCampaignInstructions(input: Record<string, any>): string | null {
+  const structured: CampaignEmailConfig = {
+    instructions: input.emailInstructions ?? input.email_instructions ?? null,
+    qualificationCriteria: input.qualificationCriteria ?? null,
+    requiredCommercialInfo: input.requiredCommercialInfo ?? null,
+    emailSubject: input.emailSubject ?? null,
+    emailBody: input.emailBody ?? null,
+    companySignature: input.companySignature ?? null,
+    attachments: input.attachments ?? [],
+  };
+  if (
+    structured.qualificationCriteria ||
+    (structured.requiredCommercialInfo && structured.requiredCommercialInfo.length > 0) ||
+    structured.emailSubject ||
+    structured.emailBody ||
+    structured.companySignature ||
+    (structured.attachments && structured.attachments.length > 0)
+  ) {
+    return JSON.stringify(structured);
+  }
+  return structured.instructions ?? null;
+}
+
+export function unpackCampaignInstructions(raw?: string | null): CampaignEmailConfig {
+  if (!raw) return {};
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      return JSON.parse(trimmed) as CampaignEmailConfig;
+    } catch {
+      return { instructions: raw };
+    }
+  }
+  return { instructions: raw };
+}
+
 export class CampaignsRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) { }
 
@@ -112,12 +158,23 @@ export class CampaignsRepository {
   }
 
   async create(input: CampaignInsert): Promise<CampaignRow> {
+    const instructions = packCampaignInstructions(input as any);
+    const followupEnabled = Boolean((input as any).emailFollowupEnabled ?? (input as any).email_followup_enabled);
+    const lawfulBasis = (input as any).emailLawfulBasis ?? (input as any).email_lawful_basis ?? 'legitimate_interest_documented';
+    const lawfulBasisNote = (input as any).emailLawfulBasisNote ?? (input as any).email_lawful_basis_note ?? 'B2B commercial discussion';
+
     const payload: Record<string, unknown> = {
       organization_id: input.organization_id,
       name: input.name,
+      description: input.description ?? '',
       status: input.status ?? 'draft',
       agent_id: input.agent_id ?? (input as any).ai_agent_id ?? null,
+      ai_agent_id: input.agent_id ?? (input as any).ai_agent_id ?? null,
       created_by: input.created_by ?? null,
+      email_followup_enabled: followupEnabled,
+      email_instructions: instructions,
+      email_lawful_basis: lawfulBasis,
+      email_lawful_basis_note: lawfulBasisNote,
       schedule_window:
         input.schedule_window ??
         JSON.stringify({
@@ -149,14 +206,29 @@ export class CampaignsRepository {
       updated_at: new Date().toISOString(),
     };
     if (input.name !== undefined) payload.name = input.name;
+    if (input.description !== undefined) payload.description = input.description;
     if (input.status !== undefined) payload.status = input.status;
     if (input.agent_id !== undefined) payload.agent_id = input.agent_id;
     if ((input as any).ai_agent_id !== undefined && payload.agent_id === undefined) {
       payload.agent_id = (input as any).ai_agent_id;
+      payload.ai_agent_id = (input as any).ai_agent_id;
     }
     if (input.created_by !== undefined) payload.created_by = input.created_by;
     if (input.schedule_window !== undefined) payload.schedule_window = input.schedule_window;
     if (input.retry_policy !== undefined) payload.retry_policy = input.retry_policy;
+    if ((input as any).emailFollowupEnabled !== undefined || (input as any).email_followup_enabled !== undefined) {
+      payload.email_followup_enabled = Boolean((input as any).emailFollowupEnabled ?? (input as any).email_followup_enabled);
+    }
+    if ((input as any).emailLawfulBasis !== undefined || (input as any).email_lawful_basis !== undefined) {
+      payload.email_lawful_basis = (input as any).emailLawfulBasis ?? (input as any).email_lawful_basis;
+    }
+    if ((input as any).emailLawfulBasisNote !== undefined || (input as any).email_lawful_basis_note !== undefined) {
+      payload.email_lawful_basis_note = (input as any).emailLawfulBasisNote ?? (input as any).email_lawful_basis_note;
+    }
+    const packed = packCampaignInstructions(input as any);
+    if (packed !== null || (input as any).emailInstructions !== undefined || (input as any).email_instructions !== undefined) {
+      payload.email_instructions = packed;
+    }
 
     const { data, error } = await this.supabase
       .from('campaigns')

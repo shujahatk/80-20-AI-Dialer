@@ -11,7 +11,9 @@ import { retellEventToNormalizedType } from './retell-events';
 import type { RetellWebhookEvent, RetellMetadata } from './types';
 import { CallsRepository } from '@/repositories/calls.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
-import { CampaignsRepository } from '@/repositories/campaigns.repository';
+import { CampaignsRepository, unpackCampaignInstructions } from '@/repositories/campaigns.repository';
+import { evaluateCampaignPostCallQualification } from '@/services/campaigns/campaign-qualification.service';
+import { scheduleFollowUp } from '@/services/email/run-follow-up';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json, LeadStatusDb } from '@/lib/supabase/types';
 
@@ -268,12 +270,50 @@ export class RetellWebhookService {
           if (callId && organizationId) {
             const analysis = RetellMapper.mapRetellAnalysisToRM(call.call_analysis);
 
+            // Load campaign configuration & criteria if campaign is associated
+            let campaignCriteria = null;
+            let campaignRow = null;
+            const effectiveCampaignId = metadata.campaignId || (call as any).campaign_id || null;
+            if (effectiveCampaignId) {
+              try {
+                campaignRow = await this.campaignsRepo.getById(effectiveCampaignId, organizationId);
+                if (campaignRow) {
+                  const unpacked = unpackCampaignInstructions(campaignRow.email_instructions);
+                  campaignCriteria = unpacked.qualificationCriteria || null;
+                }
+              } catch (campErr) {
+                console.warn('[RetellWebhookService] Campaign lookup failed for qualification:', campErr);
+              }
+            }
+
+            // Run deterministic qualification evaluation against campaign criteria
+            const qualificationEval = evaluateCampaignPostCallQualification(
+              {
+                callOutcome: analysis.callOutcome,
+                leadStatus: analysis.leadStatus,
+                summary: analysis.summary,
+                sentiment: analysis.sentiment,
+                dncRequested: analysis.dncRequested,
+                inVoicemail: analysis.inVoicemail,
+                disconnectionReason: call.disconnection_reason,
+                decisionMakerIdentified: analysis.decisionMakerIdentified,
+                contactName: analysis.contactName,
+                jobTitle: analysis.jobTitle,
+                emailAddress: analysis.emailAddress,
+                directPhoneNumber: analysis.directPhoneNumber,
+                interestLevel: analysis.interestLevel,
+                materialContext: analysis.materialContext,
+                customData: analysis.qualificationData,
+              },
+              campaignCriteria
+            );
+
             // Persist call outcome entry to verified call_outcomes table
             await this.callsRepo.recordOutcome({
               call_session_id: callId,
               organization_id: organizationId,
-              disposition: analysis.leadStatus || analysis.callOutcome || 'Completed',
-              notes: analysis.summary || '',
+              disposition: qualificationEval.outcome,
+              notes: qualificationEval.summary || analysis.summary || '',
             });
 
             // Log post-call analysis event with complete qualification extraction
@@ -284,22 +324,25 @@ export class RetellWebhookService {
               provider_event_id: externalEventId,
               payload: {
                 summary: analysis.summary,
-                call_outcome: analysis.callOutcome,
+                call_outcome: qualificationEval.outcome,
                 sentiment: analysis.sentiment,
                 sentiment_score: analysis.sentimentScore,
                 is_successful: analysis.isSuccessful,
                 in_voicemail: analysis.inVoicemail,
                 qualification: {
-                  decisionMakerIdentified: analysis.decisionMakerIdentified,
+                  outcome: qualificationEval.outcome,
+                  isQualified: qualificationEval.isQualified,
+                  decisionMakerInvolved: qualificationEval.decisionMakerInvolved,
+                  materialInterest: qualificationEval.materialInterest,
+                  estimatedVolume: qualificationEval.estimatedVolume,
+                  purchaseIntent: qualificationEval.purchaseIntent,
+                  commercialRequirements: qualificationEval.commercialRequirements,
+                  disqualificationReasons: qualificationEval.disqualificationReasons,
+                  evidence: qualificationEval.evidence,
                   contactName: analysis.contactName,
                   jobTitle: analysis.jobTitle,
                   emailAddress: analysis.emailAddress,
                   directPhoneNumber: analysis.directPhoneNumber,
-                  interestLevel: analysis.interestLevel,
-                  materialContext: analysis.materialContext,
-                  followUpRequirements: analysis.followUpRequirements,
-                  callOutcome: analysis.callOutcome,
-                  leadStatus: analysis.leadStatus,
                   customData: analysis.qualificationData,
                 },
               } as unknown as Json,
@@ -307,22 +350,10 @@ export class RetellWebhookService {
 
             // Persist qualification results directly to lead record
             if (metadata.leadId) {
-              const leadUpdate: Record<string, any> = {};
-
-              // Update lead status based on remote uppercase enum values:
-              // NEW, CONTACTED, ENGAGED, TECHNICAL_EVALUATION, COMMERCIAL_DISCUSSION
-              if (analysis.leadStatus) {
-                const dbStatusMap: Record<string, LeadStatusDb> = {
-                  Confirmed: 'COMMERCIAL_DISCUSSION',
-                  Interested: 'ENGAGED',
-                  'Follow-up': 'ENGAGED',
-                  Callback: 'CONTACTED',
-                  'Not Interested': 'CONTACTED',
-                  'Do Not Call': 'CONTACTED',
-                  Unqualified: 'CONTACTED',
-                };
-                leadUpdate.status = dbStatusMap[analysis.leadStatus] || 'CONTACTED';
-              }
+              const leadUpdate: Record<string, any> = {
+                status: qualificationEval.recommendedDbStatus,
+                notes: `[Call ${qualificationEval.outcome}] ${qualificationEval.summary}`,
+              };
 
               if (analysis.contactName) {
                 leadUpdate.name = analysis.contactName;
@@ -337,26 +368,43 @@ export class RetellWebhookService {
                 leadUpdate.phone = analysis.directPhoneNumber;
               }
 
-              if (analysis.dncRequested) {
+              if (qualificationEval.outcome === 'DO_NOT_CALL') {
                 await this.leadsRepo.markDnc(metadata.leadId, organizationId, 'Prospect requested DNC during AI call');
-                if (metadata.campaignLeadId) {
-                  await this.campaignsRepo.updateAttempt(metadata.campaignLeadId, 'dnc', null);
-                }
               } else {
-                if (Object.keys(leadUpdate).length > 0) {
-                  await this.leadsRepo.update(metadata.leadId, organizationId, leadUpdate);
+                await this.leadsRepo.update(metadata.leadId, organizationId, leadUpdate);
+              }
+
+              // Update campaign enrollment state & outcome
+              if (effectiveCampaignId) {
+                try {
+                  const enrollmentOutcome = qualificationEval.outcome.toLowerCase();
+                  const enrollmentState =
+                    qualificationEval.outcome === 'CALLBACK_REQUESTED' || qualificationEval.outcome === 'NO_ANSWER'
+                      ? 'pending'
+                      : 'completed';
+
+                  await this.supabase
+                    .from('campaign_enrollments')
+                    .update({
+                      outcome: enrollmentOutcome,
+                      state: enrollmentState,
+                      last_call_id: callId,
+                      updated_at: new Date().toISOString(),
+                    } as any)
+                    .eq('campaign_id', effectiveCampaignId)
+                    .eq('lead_id', metadata.leadId);
+                } catch (enrollErr) {
+                  console.warn('[RetellWebhookService] Failed to update campaign enrollment:', enrollErr);
                 }
 
-                if (metadata.campaignLeadId) {
-                  if (analysis.leadStatus === 'Confirmed' || analysis.leadStatus === 'Interested' || analysis.isSuccessful) {
-                    await this.campaignsRepo.completeLead(metadata.campaignLeadId, 'qualified');
-                  } else if (analysis.leadStatus === 'Callback') {
-                    const nextAttempt = new Date(Date.now() + 3600000 * 24).toISOString();
-                    await this.campaignsRepo.updateAttempt(metadata.campaignLeadId, 'callback', nextAttempt);
-                  } else if (analysis.leadStatus === 'Not Interested' || analysis.leadStatus === 'Unqualified') {
-                    await this.campaignsRepo.completeLead(metadata.campaignLeadId, 'unqualified');
-                  } else {
-                    await this.campaignsRepo.completeLead(metadata.campaignLeadId, 'completed');
+                // If lead is fully QUALIFIED in a campaign, trigger Resend follow-up email automation
+                if (qualificationEval.isQualified && campaignRow?.email_followup_enabled) {
+                  try {
+                    void scheduleFollowUp(callId, 'analyzed').catch((err) => {
+                      console.error('[RetellWebhookService] Error scheduling follow-up email:', err);
+                    });
+                  } catch (followUpErr) {
+                    console.error('[RetellWebhookService] scheduleFollowUp invocation failed:', followUpErr);
                   }
                 }
               }

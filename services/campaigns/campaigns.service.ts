@@ -6,6 +6,8 @@ import {
   type CampaignProgressMetrics,
   type CampaignLeadMembership,
   type ClaimedLeadCandidate,
+  unpackCampaignInstructions,
+  packCampaignInstructions,
 } from '@/repositories/campaigns.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
 import { AgentsRepository } from '@/repositories/agents.repository';
@@ -169,6 +171,16 @@ export class CampaignsService {
       startDate: row.start_date ?? null,
       endDate: row.end_date ?? null,
       detailedMetrics: metrics,
+      emailFollowupEnabled: Boolean(row.email_followup_enabled),
+      emailSubject: unpackCampaignInstructions(row.email_instructions).emailSubject ?? null,
+      emailBody: unpackCampaignInstructions(row.email_instructions).emailBody ?? null,
+      companySignature: unpackCampaignInstructions(row.email_instructions).companySignature ?? null,
+      attachments: unpackCampaignInstructions(row.email_instructions).attachments ?? [],
+      qualificationCriteria: unpackCampaignInstructions(row.email_instructions).qualificationCriteria ?? null,
+      requiredCommercialInfo: unpackCampaignInstructions(row.email_instructions).requiredCommercialInfo ?? [],
+      emailInstructions: unpackCampaignInstructions(row.email_instructions).instructions ?? row.email_instructions ?? null,
+      emailLawfulBasis: row.email_lawful_basis ?? null,
+      emailLawfulBasisNote: row.email_lawful_basis_note ?? null,
     };
   }
 
@@ -269,6 +281,10 @@ export class CampaignsService {
       concurrency_limit: validated.concurrencyLimit,
       daily_attempt_limit: validated.dailyAttemptLimit,
       created_by: actorId || null,
+      email_followup_enabled: Boolean(validated.emailFollowupEnabled),
+      email_lawful_basis: validated.emailLawfulBasis || 'legitimate_interest_documented',
+      email_lawful_basis_note: validated.emailLawfulBasisNote || 'B2B commercial discussion',
+      email_instructions: packCampaignInstructions(validated as any),
     };
 
     const row = await this.repo.create(campaignInsert);

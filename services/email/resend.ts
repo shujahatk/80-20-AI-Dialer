@@ -75,6 +75,7 @@ export function createResendSender(): ResendSender {
             html: input.html,
             text: input.text,
             reply_to: input.replyTo || undefined,
+            attachments: input.attachments && input.attachments.length > 0 ? input.attachments : undefined,
             headers: {
               'List-Unsubscribe': `<${input.unsubscribeUrl}>`,
               'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',

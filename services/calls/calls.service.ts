@@ -117,6 +117,22 @@ export class CallsService {
     // 1. Runtime Callability, DNC & Active Call Guard
     const { lead, phoneNorm } = await this.assertLeadCallable(params.leadId, orgId, params.phoneNumber);
 
+    // Verify campaign enrollment if campaignId is specified
+    if (params.campaignId) {
+      const { data: enrollment, error: enrollError } = await this.supabase
+        .from('campaign_enrollments')
+        .select('id, state')
+        .eq('campaign_id', params.campaignId)
+        .eq('lead_id', lead.id)
+        .maybeSingle();
+
+      if (enrollError || !enrollment) {
+        throw new Error(
+          `Campaign call rejected: Lead '${lead.full_name}' (ID: ${lead.id}) is not enrolled in campaign '${params.campaignId}'. Campaign calls cannot be made to unenrolled leads.`
+        );
+      }
+    }
+
     const env = getServerEnv();
     const effectiveAiAgentId =
       params.aiAgentId ||

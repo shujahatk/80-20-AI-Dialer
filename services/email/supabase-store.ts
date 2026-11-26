@@ -593,6 +593,27 @@ export class SupabaseEmailStore {
     const [firstName = '', ...nameRest] = (leadRow?.name ? String(leadRow.name) : '').split(' ');
     const lastName = nameRest.join(' ');
     const leadMeta = (leadRow?.custom_fields as Record<string, unknown>) ?? {};
+    let campInstructions = campaignRow?.email_instructions ? String(campaignRow.email_instructions) : null;
+    let emailSubject: string | null = null;
+    let emailBody: string | null = null;
+    let companySignature: string | null = null;
+    let attachments: string[] | null = null;
+    let qualificationCriteria: Record<string, unknown> | null = null;
+    let requiredCommercialInfo: string[] | null = null;
+
+    if (campInstructions && campInstructions.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(campInstructions.trim());
+        emailSubject = parsed.emailSubject || null;
+        emailBody = parsed.emailBody || null;
+        companySignature = parsed.companySignature || null;
+        attachments = parsed.attachments || null;
+        qualificationCriteria = parsed.qualificationCriteria || null;
+        requiredCommercialInfo = parsed.requiredCommercialInfo || null;
+        campInstructions = parsed.instructions || campInstructions;
+      } catch {}
+    }
+
     const lead: FollowUpLead | null = leadRow
       ? {
         id: String(leadRow.id),
@@ -617,7 +638,13 @@ export class SupabaseEmailStore {
         emailFollowupEnabled: Boolean(campaignRow.email_followup_enabled),
         lawfulBasis: asBasis(campaignRow.email_lawful_basis),
         lawfulBasisNote: campaignRow.email_lawful_basis_note ? String(campaignRow.email_lawful_basis_note) : null,
-        instructions: campaignRow.email_instructions ? String(campaignRow.email_instructions) : null,
+        instructions: campInstructions,
+        emailSubject,
+        emailBody,
+        companySignature,
+        attachments,
+        qualificationCriteria,
+        requiredCommercialInfo,
       }
       : null;
     return {

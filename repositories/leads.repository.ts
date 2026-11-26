@@ -189,7 +189,7 @@ export class LeadsRepository {
         .select('*', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .is('deleted_at', null)
-        .in('status', ['ENGAGED', 'TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION']),
+        .in('status', ['TECHNICAL_EVALUATION', 'COMMERCIAL_DISCUSSION']),
       this.supabase
         .from('leads')
         .select('*', { count: 'exact', head: true })

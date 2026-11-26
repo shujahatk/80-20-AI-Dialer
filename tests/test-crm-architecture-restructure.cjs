@@ -92,8 +92,9 @@ it('maps CONTACTED, IN_PROGRESS, DIALING, CONNECTED to domain status "contacted"
   assert.strictEqual(toDomainLeadStatus('connected', false), 'contacted');
 });
 
-it('maps ENGAGED and TECHNICAL_EVALUATION to domain status "qualified"', () => {
-  assert.strictEqual(toDomainLeadStatus('ENGAGED', false), 'qualified');
+it('maps ENGAGED to domain status "needs-review", and TECHNICAL_EVALUATION to "qualified"', () => {
+  assert.strictEqual(toDomainLeadStatus('ENGAGED', false), 'needs-review');
+  assert.strictEqual(toDomainLeadStatus('NEEDS_REVIEW', false), 'needs-review');
   assert.strictEqual(toDomainLeadStatus('TECHNICAL_EVALUATION', false), 'qualified');
   assert.strictEqual(toDomainLeadStatus('QUALIFIED', false), 'qualified');
 });
@@ -113,7 +114,8 @@ it('enforces Do Not Call precedence over database status', () => {
 it('maps domain filter strings back to database enum queries accurately', () => {
   assert.deepStrictEqual(toDbLeadStatuses('new'), ['NEW']);
   assert.deepStrictEqual(toDbLeadStatuses('contacted'), ['CONTACTED']);
-  assert.deepStrictEqual(toDbLeadStatuses('qualified'), ['ENGAGED', 'TECHNICAL_EVALUATION']);
+  assert.deepStrictEqual(toDbLeadStatuses('needs-review'), ['ENGAGED']);
+  assert.deepStrictEqual(toDbLeadStatuses('qualified'), ['TECHNICAL_EVALUATION']);
   assert.deepStrictEqual(toDbLeadStatuses('meeting-booked'), ['COMMERCIAL_DISCUSSION']);
   assert.deepStrictEqual(toDbLeadStatuses('all'), []);
   assert.deepStrictEqual(toDbLeadStatuses(undefined), []);

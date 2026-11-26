@@ -82,6 +82,7 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
             <option value="all">All Statuses</option>
             <option value="new">New</option>
             <option value="contacted">Contacted</option>
+            <option value="needs-review">Needs Review</option>
             <option value="qualified">Qualified</option>
             <option value="converted">Meeting Booked</option>
             <option value="unqualified">Unreachable</option>

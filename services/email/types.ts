@@ -90,6 +90,12 @@ export interface FollowUpCampaign {
   lawfulBasis: LawfulBasis | null;
   lawfulBasisNote: string | null;
   instructions: string | null;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  companySignature?: string | null;
+  attachments?: string[] | null;
+  qualificationCriteria?: Record<string, unknown> | null;
+  requiredCommercialInfo?: string[] | null;
 }
 
 export interface FollowUpCall {

@@ -30,6 +30,7 @@ export interface ResendSendInput {
   text: string;
   idempotencyKey: string;
   unsubscribeUrl: string;
+  attachments?: Array<{ filename: string; content?: string; path?: string }>;
 }
 
 export type ResendSendResult =
@@ -233,7 +234,31 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
   const recipient = normalizeEmail(call.lead.email);
   let draft: EmailDraft;
   try {
-    draft = await generateFollowUpDraft(call, qualification, settings.senderName, settings.companyBlurb, deps.claude);
+    if (call.campaign?.emailSubject && call.campaign?.emailBody) {
+      let subj = call.campaign.emailSubject;
+      let textB = call.campaign.emailBody;
+      const contactName = call.lead?.firstName ? `${call.lead.firstName} ${call.lead.lastName || ''}`.trim() : 'there';
+      const companyName = call.lead?.companyName || '';
+      const material = qualification.customerRequirements.length > 0 ? qualification.customerRequirements.join(', ') : 'commercial discussion';
+
+      subj = subj.replace(/\{\{\s*contact_name\s*\}\}/gi, contactName)
+                 .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
+                 .replace(/\{\{\s*material_interest\s*\}\}/gi, material);
+
+      textB = textB.replace(/\{\{\s*contact_name\s*\}\}/gi, contactName)
+                   .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
+                   .replace(/\{\{\s*material_interest\s*\}\}/gi, material);
+
+      draft = {
+        subject: subj,
+        textBody: textB,
+        htmlBody: textToHtml(textB),
+        category,
+        evidenceReferences: qualification.evidence.map(e => e.quote).slice(0, 3),
+      };
+    } else {
+      draft = await generateFollowUpDraft(call, qualification, settings.senderName, settings.companyBlurb, deps.claude);
+    }
   } catch (error) {
     if (error instanceof ClaudeUnavailableError) {
       const attempts = job.attempts + 1;
@@ -316,7 +341,8 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
     deps.unsubscribeSecret,
     nowDate.getTime()
   )}`;
-  const rendered = appendFooter(validated.draft.textBody, textToHtml(validated.draft.textBody), fresh.senderName, unsubscribeUrl);
+  const signature = call.campaign?.companySignature || fresh.senderName;
+  const rendered = appendFooter(validated.draft.textBody, textToHtml(validated.draft.textBody), signature, unsubscribeUrl);
   let message;
   try {
     message = await store.insertQueuedMessage(
@@ -357,6 +383,11 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
   }
 
   await store.updateJob(job.id, { status: 'queued', draft: validated.draft, lockedAt: now }, now);
+  const campaignAttachments = (call.campaign?.attachments || []).map((att) => ({
+    filename: att.split('/').pop() || 'attachment.pdf',
+    path: att,
+  }));
+
   const sendResult = await deps.sender.send({
     to: recipient,
     from: formatFrom(fresh.senderName, deps.fromEmail),
@@ -366,6 +397,7 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
     text: rendered.textBody,
     idempotencyKey: job.idempotencyKey,
     unsubscribeUrl,
+    attachments: campaignAttachments.length > 0 ? campaignAttachments : undefined,
   });
 
   if (isResendError(sendResult)) {

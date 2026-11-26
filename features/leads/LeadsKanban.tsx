@@ -9,6 +9,7 @@ const COLUMNS: Array<{ id: string; title: string; statuses: LeadStatus[]; apiSta
   { id: 'new', title: 'New', statuses: ['new'], apiStatus: 'new' },
   { id: 'queue', title: 'In queue', statuses: ['in-queue', 'dialing'], apiStatus: 'queued' },
   { id: 'contacted', title: 'Contacted', statuses: ['connected', 'voicemail-left', 'objection-handled'], apiStatus: 'contacted' },
+  { id: 'needs-review', title: 'Needs Review', statuses: ['needs-review', 'needs_review', 'engaged'], apiStatus: 'needs-review' },
   { id: 'qualified', title: 'Qualified', statuses: ['qualified'], apiStatus: 'qualified' },
   { id: 'meeting', title: 'Meeting', statuses: ['meeting-booked'], apiStatus: 'converted' },
   { id: 'followup', title: 'Follow-up', statuses: ['callback-scheduled'], apiStatus: 'contacted' },

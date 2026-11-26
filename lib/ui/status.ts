@@ -20,6 +20,10 @@ export function leadStatusLabel(status: LeadStatus | string): string {
     case 'connected':
     case 'contacted':
       return 'Contacted';
+    case 'needs-review':
+    case 'needs_review':
+    case 'engaged':
+      return 'Needs Review';
     case 'qualified':
       return 'Qualified';
     case 'dnc':
@@ -42,6 +46,10 @@ export function leadStatusTone(status: LeadStatus | string): BadgeTone {
     case 'converted':
     case 'qualified':
       return 'success';
+    case 'needs-review':
+    case 'needs_review':
+    case 'engaged':
+      return 'warning';
     case 'callback-scheduled':
     case 'callback':
     case 'dialing':

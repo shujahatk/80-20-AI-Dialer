@@ -28,6 +28,9 @@ export function toDomainLeadStatus(
     case 'CONNECTED':
       return 'contacted';
     case 'ENGAGED':
+    case 'NEEDS_REVIEW':
+    case 'NEEDS-REVIEW':
+      return 'needs-review';
     case 'TECHNICAL_EVALUATION':
     case 'QUALIFIED':
       return 'qualified';
@@ -67,9 +70,11 @@ export function toDbLeadStatuses(filterStatus: string | null | undefined): LeadS
     case 'in_progress':
       return ['CONTACTED'];
     case 'engaged':
+    case 'needs-review':
+    case 'needs_review':
       return ['ENGAGED'];
     case 'qualified':
-      return ['ENGAGED', 'TECHNICAL_EVALUATION'];
+      return ['TECHNICAL_EVALUATION'];
     case 'meeting-booked':
     case 'converted':
     case 'commercial_discussion':
@@ -99,6 +104,8 @@ export function toDbLeadStatus(status: string | null | undefined): LeadStatusDb 
     case 'UNQUALIFIED':
       return 'CONTACTED';
     case 'ENGAGED':
+    case 'NEEDS_REVIEW':
+    case 'NEEDS-REVIEW':
     case 'INTERESTED':
     case 'FOLLOW_UP':
       return 'ENGAGED';

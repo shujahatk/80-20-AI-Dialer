@@ -33,6 +33,16 @@ export const campaignCreateSchema = z.object({
   retryDelayMinutes: z.number().int().min(5).max(1440).default(60),
   concurrencyLimit: z.number().int().min(1).max(50).default(10),
   dailyAttemptLimit: z.number().int().min(1).max(10000).default(500),
+  emailFollowupEnabled: z.boolean().default(false),
+  emailSubject: z.string().optional().nullable(),
+  emailBody: z.string().optional().nullable(),
+  companySignature: z.string().optional().nullable(),
+  attachments: z.array(z.string()).optional().default([]),
+  qualificationCriteria: z.record(z.string(), z.any()).optional().nullable(),
+  requiredCommercialInfo: z.array(z.string()).optional().default([]),
+  emailInstructions: z.string().optional().nullable(),
+  emailLawfulBasis: z.string().optional().nullable(),
+  emailLawfulBasisNote: z.string().optional().nullable(),
 });
 
 export type CampaignCreateInput = z.input<typeof campaignCreateSchema>;

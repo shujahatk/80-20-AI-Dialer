@@ -56,6 +56,9 @@ export type LeadStatus =
   | 'contacted'
   | 'voicemail-left'
   | 'objection-handled'
+  | 'needs-review'
+  | 'needs_review'
+  | 'engaged'
   | 'qualified'
   | 'meeting-booked'
   | 'converted'
@@ -299,6 +302,16 @@ export interface Campaign {
   startDate?: string | null;
   endDate?: string | null;
   detailedMetrics?: CampaignProgressMetrics;
+  emailFollowupEnabled?: boolean;
+  emailSubject?: string | null;
+  emailBody?: string | null;
+  companySignature?: string | null;
+  attachments?: string[];
+  qualificationCriteria?: Record<string, any> | null;
+  requiredCommercialInfo?: string[];
+  emailInstructions?: string | null;
+  emailLawfulBasis?: string | null;
+  emailLawfulBasisNote?: string | null;
 }
 
 // =============================================================================
