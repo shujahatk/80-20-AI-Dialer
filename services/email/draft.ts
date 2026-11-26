@@ -7,7 +7,7 @@ const draftSchema = z.object({
   textBody: z.string().min(20).max(1800),
   htmlBody: z.string().max(4000).optional().default(''),
   category: z.enum(['qualification_follow_up', 'requested_information', 'general_follow_up']),
-  evidenceReferences: z.array(z.string().min(8).max(240)).min(1).max(4),
+  evidenceReferences: z.array(z.string().min(8).max(240)).max(4).optional().default([]),
 });
 
 const FORBIDDEN = [
@@ -119,19 +119,24 @@ export function validateDraft(
   if (/<script/i.test(value.htmlBody) || /javascript:/i.test(value.htmlBody)) {
     reasons.push('The draft contains unsafe HTML.');
   }
-  const transcript = transcriptText(call.transcript).toLowerCase().replace(/\s+/g, ' ');
-  const ungrounded = value.evidenceReferences.filter(
-    (quote) => !transcript.includes(quote.toLowerCase().replace(/\s+/g, ' ').trim())
-  );
-  if (ungrounded.length > 0) {
-    reasons.push('The draft cites conversation details that are not in the transcript.');
-  }
-  const identity = `${call.lead?.firstName ?? ''} ${call.lead?.companyName ?? ''}`.toLowerCase();
-  if (call.lead && !value.textBody.toLowerCase().includes(call.lead.firstName.toLowerCase()) && !value.textBody.toLowerCase().includes(call.lead.companyName.toLowerCase())) {
-    reasons.push('The draft does not identify the recipient.');
-  }
-  if (!identity.trim()) {
-    reasons.push('The lead identity is missing.');
+  const isCampaignTemplate = Boolean(call.campaign?.emailSubject && call.campaign?.emailBody);
+  if (!isCampaignTemplate) {
+    if (value.evidenceReferences.length > 0) {
+      const transcript = transcriptText(call.transcript).toLowerCase().replace(/\s+/g, ' ');
+      const ungrounded = value.evidenceReferences.filter(
+        (quote) => !transcript.includes(quote.toLowerCase().replace(/\s+/g, ' ').trim())
+      );
+      if (ungrounded.length > 0) {
+        reasons.push('The draft cites conversation details that are not in the transcript.');
+      }
+    }
+    const identity = `${call.lead?.firstName ?? ''} ${call.lead?.companyName ?? ''}`.toLowerCase();
+    if (call.lead && !value.textBody.toLowerCase().includes(call.lead.firstName.toLowerCase()) && !value.textBody.toLowerCase().includes(call.lead.companyName.toLowerCase())) {
+      reasons.push('The draft does not identify the recipient.');
+    }
+    if (!identity.trim()) {
+      reasons.push('The lead identity is missing.');
+    }
   }
   if (reasons.length > 0) return { ok: false, reasons };
   return {

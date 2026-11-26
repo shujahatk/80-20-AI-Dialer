@@ -277,12 +277,15 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
                    .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
                    .replace(/\{\{\s*material_interest\s*\}\}/gi, material);
 
+      const campaignEvidence = qualification.evidence.length > 0 && qualification.evidence[0].quote.length >= 8
+        ? [qualification.evidence[0].quote.slice(0, 240)]
+        : [];
       draft = {
         subject: subj,
         textBody: textB,
         htmlBody: textToHtml(textB),
         category,
-        evidenceReferences: qualification.evidence.map(e => e.quote).slice(0, 3),
+        evidenceReferences: campaignEvidence,
       };
     } else {
       draft = await generateFollowUpDraft(call, qualification, settings.senderName, settings.companyBlurb, deps.claude);
@@ -411,10 +414,20 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
   }
 
   await store.updateJob(job.id, { status: 'queued', draft: validated.draft, lockedAt: now }, now);
-  const campaignAttachments = (call.campaign?.attachments || []).map((att) => ({
-    filename: att.split('/').pop() || 'attachment.pdf',
-    path: att,
-  }));
+  const campaignAttachments = (call.campaign?.attachments || []).map((att: any) => {
+    if (typeof att === 'object' && att !== null) {
+      const obj: { filename: string; content?: string; path?: string } = {
+        filename: att.filename || 'attachment.pdf',
+      };
+      if (att.content) obj.content = att.content;
+      if (att.path) obj.path = att.path;
+      return obj;
+    }
+    return {
+      filename: String(att).split('/').pop() || 'attachment.pdf',
+      path: String(att),
+    };
+  });
 
   const sendResult = await deps.sender.send({
     to: recipient,

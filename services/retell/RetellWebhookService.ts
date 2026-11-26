@@ -273,13 +273,14 @@ export class RetellWebhookService {
             // Load campaign configuration & criteria if campaign is associated
             let campaignCriteria = null;
             let campaignRow = null;
-            const effectiveCampaignId = metadata.campaignId || (call as any).campaign_id || null;
+            const effectiveCampaignId = metadata.campaignId || (metadata as any).campaign_id || (call as any).campaign_id || rmCall?.campaign_id || null;
+            const effectiveLeadId = metadata.leadId || (metadata as any).lead_id || (call as any).lead_id || rmCall?.lead_id || null;
             if (effectiveCampaignId) {
               try {
                 campaignRow = await this.campaignsRepo.getById(effectiveCampaignId, organizationId);
                 if (campaignRow) {
                   const unpacked = unpackCampaignInstructions(campaignRow.email_instructions);
-                  campaignCriteria = unpacked.qualificationCriteria || null;
+                  campaignCriteria = (campaignRow as any).qualificationCriteria || unpacked.qualificationCriteria || null;
                 }
               } catch (campErr) {
                 console.warn('[RetellWebhookService] Campaign lookup failed for qualification:', campErr);
@@ -349,7 +350,7 @@ export class RetellWebhookService {
             });
 
             // Persist qualification results directly to lead record
-            if (metadata.leadId) {
+            if (effectiveLeadId) {
               const leadUpdate: Record<string, any> = {
                 status: qualificationEval.recommendedDbStatus,
                 notes: `[Call ${qualificationEval.outcome}] ${qualificationEval.summary}`,
@@ -369,9 +370,9 @@ export class RetellWebhookService {
               }
 
               if (qualificationEval.outcome === 'DO_NOT_CALL') {
-                await this.leadsRepo.markDnc(metadata.leadId, organizationId, 'Prospect requested DNC during AI call');
+                await this.leadsRepo.markDnc(effectiveLeadId, organizationId, 'Prospect requested DNC during AI call');
               } else {
-                await this.leadsRepo.update(metadata.leadId, organizationId, leadUpdate);
+                await this.leadsRepo.update(effectiveLeadId, organizationId, leadUpdate);
               }
 
               // Update campaign enrollment state & outcome
@@ -392,13 +393,13 @@ export class RetellWebhookService {
                       updated_at: new Date().toISOString(),
                     } as any)
                     .eq('campaign_id', effectiveCampaignId)
-                    .eq('lead_id', metadata.leadId);
+                    .eq('lead_id', effectiveLeadId);
                 } catch (enrollErr) {
                   console.warn('[RetellWebhookService] Failed to update campaign enrollment:', enrollErr);
                 }
 
                 // If lead is fully QUALIFIED in a campaign, trigger Resend follow-up email automation
-                if (qualificationEval.isQualified && campaignRow?.email_followup_enabled) {
+                if (qualificationEval.isQualified && (campaignRow?.email_followup_enabled || (campaignRow as any)?.emailFollowupEnabled)) {
                   try {
                     void scheduleFollowUp(callId, 'analyzed').catch((err) => {
                       console.error('[RetellWebhookService] Error scheduling follow-up email:', err);

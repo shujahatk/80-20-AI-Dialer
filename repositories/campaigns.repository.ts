@@ -104,6 +104,45 @@ export function unpackCampaignInstructions(raw?: string | null): CampaignEmailCo
 export class CampaignsRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) { }
 
+  private enrichCampaignRow(row: any): CampaignRow {
+    if (!row) return row;
+    row.ai_agent_id = row.agent_id ?? row.ai_agent_id ?? null;
+    row.aiAgentId = row.agent_id ?? row.ai_agent_id ?? null;
+    if (row.schedule_window && typeof row.schedule_window === 'string' && row.schedule_window.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(row.schedule_window.trim());
+        if (parsed.emailFollowupEnabled !== undefined) {
+          row.email_followup_enabled = Boolean(parsed.emailFollowupEnabled);
+          row.emailFollowupEnabled = Boolean(parsed.emailFollowupEnabled);
+        }
+        if (parsed.emailLawfulBasis !== undefined) {
+          row.email_lawful_basis = parsed.emailLawfulBasis;
+          row.emailLawfulBasis = parsed.emailLawfulBasis;
+        }
+        if (parsed.emailLawfulBasisNote !== undefined) {
+          row.email_lawful_basis_note = parsed.emailLawfulBasisNote;
+          row.emailLawfulBasisNote = parsed.emailLawfulBasisNote;
+        }
+        if (parsed.emailInstructions !== undefined) {
+          row.email_instructions = parsed.emailInstructions;
+          row.emailInstructions = parsed.emailInstructions;
+          const unpacked = unpackCampaignInstructions(parsed.emailInstructions);
+          row.emailSubject = unpacked.emailSubject;
+          row.emailBody = unpacked.emailBody;
+          row.companySignature = unpacked.companySignature;
+          row.attachments = unpacked.attachments;
+          row.qualificationCriteria = unpacked.qualificationCriteria;
+          row.requiredCommercialInfo = unpacked.requiredCommercialInfo;
+        }
+      } catch {}
+    }
+    return row as CampaignRow;
+  }
+
+  async enrollLeads(campaignId: string, leadIds: string[], orgId?: string, actorId?: string): Promise<number> {
+    return this.addLeads(campaignId, leadIds, orgId, actorId);
+  }
+
   async list(
     orgId: string,
     options: { status?: string; search?: string; limit?: number; offset?: number } = {}
@@ -142,7 +181,7 @@ export class CampaignsRepository {
     if (error) throw error;
 
     return {
-      campaigns: (data as CampaignRow[]) ?? [],
+      campaigns: ((data as any[]) ?? []).map((row) => this.enrichCampaignRow(row)),
       totalCount: count ?? 0,
     };
   }
@@ -154,7 +193,7 @@ export class CampaignsRepository {
     }
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return (data as CampaignRow | null) ?? null;
+    return data ? this.enrichCampaignRow(data) : null;
   }
 
   async create(input: CampaignInsert): Promise<CampaignRow> {
@@ -163,26 +202,26 @@ export class CampaignsRepository {
     const lawfulBasis = (input as any).emailLawfulBasis ?? (input as any).email_lawful_basis ?? 'legitimate_interest_documented';
     const lawfulBasisNote = (input as any).emailLawfulBasisNote ?? (input as any).email_lawful_basis_note ?? 'B2B commercial discussion';
 
+    const scheduleWindowData = {
+      window: {
+        start: (input as any).calling_window_start ?? (input as any).callingWindowStart ?? '09:00',
+        end: (input as any).calling_window_end ?? (input as any).callingWindowEnd ?? '17:00',
+        days: (input as any).calling_days ?? (input as any).callingDays ?? [1, 2, 3, 4, 5],
+        timezone: (input as any).timezone ?? 'UTC',
+      },
+      emailFollowupEnabled: followupEnabled,
+      emailLawfulBasis: lawfulBasis,
+      emailLawfulBasisNote: lawfulBasisNote,
+      emailInstructions: instructions,
+    };
+
     const payload: Record<string, unknown> = {
-      organization_id: input.organization_id,
+      organization_id: input.organization_id ?? (input as any).organizationId ?? (input as any).orgId,
       name: input.name,
-      description: input.description ?? '',
       status: input.status ?? 'draft',
       agent_id: input.agent_id ?? (input as any).ai_agent_id ?? null,
-      ai_agent_id: input.agent_id ?? (input as any).ai_agent_id ?? null,
       created_by: input.created_by ?? null,
-      email_followup_enabled: followupEnabled,
-      email_instructions: instructions,
-      email_lawful_basis: lawfulBasis,
-      email_lawful_basis_note: lawfulBasisNote,
-      schedule_window:
-        input.schedule_window ??
-        JSON.stringify({
-          start: (input as any).calling_window_start ?? '09:00',
-          end: (input as any).calling_window_end ?? '17:00',
-          days: (input as any).calling_days ?? [1, 2, 3, 4, 5],
-          timezone: (input as any).timezone ?? 'UTC',
-        }),
+      schedule_window: JSON.stringify(scheduleWindowData),
       retry_policy:
         input.retry_policy ??
         JSON.stringify({
@@ -198,7 +237,7 @@ export class CampaignsRepository {
       .select()
       .single();
     if (error) throw error;
-    return data as CampaignRow;
+    return this.enrichCampaignRow(data);
   }
 
   async update(id: string, orgId: string, input: CampaignUpdate): Promise<CampaignRow> {
@@ -206,28 +245,34 @@ export class CampaignsRepository {
       updated_at: new Date().toISOString(),
     };
     if (input.name !== undefined) payload.name = input.name;
-    if (input.description !== undefined) payload.description = input.description;
     if (input.status !== undefined) payload.status = input.status;
-    if (input.agent_id !== undefined) payload.agent_id = input.agent_id;
-    if ((input as any).ai_agent_id !== undefined && payload.agent_id === undefined) {
-      payload.agent_id = (input as any).ai_agent_id;
-      payload.ai_agent_id = (input as any).ai_agent_id;
+    if (input.agent_id !== undefined || (input as any).ai_agent_id !== undefined) {
+      payload.agent_id = input.agent_id ?? (input as any).ai_agent_id ?? null;
     }
     if (input.created_by !== undefined) payload.created_by = input.created_by;
-    if (input.schedule_window !== undefined) payload.schedule_window = input.schedule_window;
     if (input.retry_policy !== undefined) payload.retry_policy = input.retry_policy;
-    if ((input as any).emailFollowupEnabled !== undefined || (input as any).email_followup_enabled !== undefined) {
-      payload.email_followup_enabled = Boolean((input as any).emailFollowupEnabled ?? (input as any).email_followup_enabled);
-    }
-    if ((input as any).emailLawfulBasis !== undefined || (input as any).email_lawful_basis !== undefined) {
-      payload.email_lawful_basis = (input as any).emailLawfulBasis ?? (input as any).email_lawful_basis;
-    }
-    if ((input as any).emailLawfulBasisNote !== undefined || (input as any).email_lawful_basis_note !== undefined) {
-      payload.email_lawful_basis_note = (input as any).emailLawfulBasisNote ?? (input as any).email_lawful_basis_note;
-    }
-    const packed = packCampaignInstructions(input as any);
-    if (packed !== null || (input as any).emailInstructions !== undefined || (input as any).email_instructions !== undefined) {
-      payload.email_instructions = packed;
+
+    if (
+      (input as any).emailFollowupEnabled !== undefined ||
+      (input as any).email_followup_enabled !== undefined ||
+      (input as any).emailSubject !== undefined ||
+      (input as any).emailBody !== undefined ||
+      input.schedule_window !== undefined
+    ) {
+      const existing = await this.getById(id, orgId);
+      const existingWindow = existing?.schedule_window ? (typeof existing.schedule_window === 'string' && existing.schedule_window.startsWith('{') ? JSON.parse(existing.schedule_window) : {}) : {};
+      const instructions = packCampaignInstructions(input as any) || existingWindow.emailInstructions;
+      const followupEnabled = (input as any).emailFollowupEnabled ?? (input as any).email_followup_enabled ?? existingWindow.emailFollowupEnabled ?? false;
+      const lawfulBasis = (input as any).emailLawfulBasis ?? (input as any).email_lawful_basis ?? existingWindow.emailLawfulBasis ?? 'consent';
+      const lawfulBasisNote = (input as any).emailLawfulBasisNote ?? (input as any).email_lawful_basis_note ?? existingWindow.emailLawfulBasisNote ?? null;
+
+      payload.schedule_window = JSON.stringify({
+        ...existingWindow,
+        emailFollowupEnabled: followupEnabled,
+        emailLawfulBasis: lawfulBasis,
+        emailLawfulBasisNote: lawfulBasisNote,
+        emailInstructions: instructions,
+      });
     }
 
     const { data, error } = await this.supabase
@@ -238,7 +283,7 @@ export class CampaignsRepository {
       .select()
       .single();
     if (error) throw error;
-    return data as CampaignRow;
+    return this.enrichCampaignRow(data);
   }
 
   async setStatus(

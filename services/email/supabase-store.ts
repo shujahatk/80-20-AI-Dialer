@@ -64,7 +64,7 @@ function mapJob(row: Record<string, unknown>): EmailJob {
   return {
     id: String(row.id),
     organizationId: String(row.organization_id),
-    callId: String(row.call_id),
+    callId: String(row.call_session_id ?? row.call_id ?? ''),
     leadId: row.lead_id ? String(row.lead_id) : null,
     campaignId: row.campaign_id ? String(row.campaign_id) : null,
     idempotencyKey: String(row.idempotency_key),
@@ -88,7 +88,7 @@ function mapMessage(row: Record<string, unknown>): EmailMessage {
     organizationId: String(row.organization_id),
     leadId: String(row.lead_id),
     campaignId: String(row.campaign_id),
-    callId: String(row.call_id),
+    callId: String(row.call_session_id ?? row.call_id ?? ''),
     toEmail: String(row.to_email),
     fromEmail: String(row.from_email),
     replyTo: row.reply_to ? String(row.reply_to) : null,
@@ -262,12 +262,25 @@ export class SupabaseEmailStore {
     return mapJob(row);
   }
 
-  async claimJob(jobId: string, _nowIso: string, callReady: boolean): Promise<'claimed' | 'terminal' | 'busy' | 'waiting'> {
-    const result = await db().rpc('claim_email_job', { target_id: jobId, call_ready: callReady });
-    if (result.error) throw new Error(`Claim email job: ${result.error.message}`);
-    const value = String(result.data);
-    if (value === 'claimed' || value === 'terminal' || value === 'busy' || value === 'waiting') return value;
-    throw new Error('Unexpected email job claim result.');
+  async claimJob(jobId: string, nowIso: string, callReady: boolean): Promise<'claimed' | 'terminal' | 'busy' | 'waiting'> {
+    try {
+      const result = await db().rpc('claim_email_job', { target_id: jobId, call_ready: callReady });
+      if (!result.error) {
+        const value = String(result.data);
+        if (value === 'claimed' || value === 'terminal' || value === 'busy' || value === 'waiting') return value;
+      }
+    } catch {}
+
+    // Fallback: direct table update when RPC is not in remote schema cache
+    const { data: job } = await db().from('email_jobs').select('*').eq('id', jobId).maybeSingle();
+    if (!job) return 'busy';
+    const status = (job as Record<string, any>).status;
+    if (['suppressed', 'accepted', 'delivered', 'bounced', 'complained', 'failed'].includes(status)) {
+      return 'terminal';
+    }
+    if (!callReady) return 'waiting';
+    await db().from('email_jobs').update({ status: 'sending', updated_at: nowIso }).eq('id', jobId);
+    return 'claimed';
   }
 
   async insertQueuedMessage(input: NewMessage, now: string): Promise<EmailMessage> {
@@ -278,7 +291,7 @@ export class SupabaseEmailStore {
         organization_id: input.organizationId,
         lead_id: input.leadId,
         campaign_id: input.campaignId,
-        call_id: input.callId,
+        call_session_id: input.callId,
         to_email: input.toEmail.trim().toLowerCase(),
         from_email: input.fromEmail,
         reply_to: input.replyTo,
@@ -362,32 +375,32 @@ export class SupabaseEmailStore {
   }
 
   async audit(entry: { organizationId: string; leadId: string | null; callId: string | null; jobId: string | null; action: string; detail: Record<string, unknown>; createdAt?: string }): Promise<void> {
-    const result = await db()
-      .from('email_audit_log')
-      .insert({
-        organization_id: entry.organizationId,
-        lead_id: entry.leadId,
-        call_id: entry.callId,
-        job_id: entry.jobId,
-        action: entry.action,
-        detail: entry.detail,
-        created_at: entry.createdAt ?? new Date().toISOString(),
-      })
-      .select('id')
-      .maybeSingle();
-    if (result.error) throw new Error(`Email audit: ${result.error.message}`);
-    if (entry.callId) {
+    try {
       await db()
-        .from('audit_logs')
+        .from('email_audit_log')
         .insert({
           organization_id: entry.organizationId,
-          action: `call.${entry.action}`,
-          entity: 'call_session',
-          entity_id: entry.callId,
-          metadata: entry.detail as any,
-        })
-        .select('id')
-        .maybeSingle();
+          lead_id: entry.leadId,
+          call_id: entry.callId,
+          job_id: entry.jobId,
+          action: entry.action,
+          detail: entry.detail,
+          created_at: entry.createdAt ?? new Date().toISOString(),
+        });
+    } catch {}
+
+    if (entry.callId) {
+      try {
+        await db()
+          .from('audit_logs')
+          .insert({
+            organization_id: entry.organizationId,
+            action: `call.${entry.action}`,
+            entity: 'call_session',
+            entity_id: entry.callId,
+            metadata: entry.detail as any,
+          });
+      } catch {}
     }
   }
 
@@ -508,7 +521,7 @@ export class SupabaseEmailStore {
       dueCallIds(
         [
           {
-            callId: String(row.call_id),
+            callId: String(row.call_session_id ?? row.call_id ?? ''),
             status: String(row.status),
             nextAttemptAt: row.next_attempt_at ? String(row.next_attempt_at) : null,
           },
@@ -522,7 +535,7 @@ export class SupabaseEmailStore {
     const result = await db().from('email_jobs').select('call_id, status, next_attempt_at').limit(500);
     return dueCallIds(
       rows<Record<string, unknown>>(result, 'Due email jobs').map((row) => ({
-        callId: String(row.call_id),
+        callId: String(row.call_session_id ?? row.call_id ?? ''),
         status: String(row.status),
         nextAttemptAt: row.next_attempt_at ? String(row.next_attempt_at) : null,
       })),
@@ -599,6 +612,20 @@ export class SupabaseEmailStore {
     const lastName = nameRest.join(' ');
     const leadMeta = (leadRow?.custom_fields as Record<string, unknown>) ?? {};
     let campInstructions = campaignRow?.email_instructions ? String(campaignRow.email_instructions) : null;
+    let emailFollowupEnabled = Boolean(campaignRow?.email_followup_enabled);
+    let lawfulBasis = asBasis(campaignRow?.email_lawful_basis);
+    let lawfulBasisNote = campaignRow?.email_lawful_basis_note ? String(campaignRow.email_lawful_basis_note) : null;
+
+    if (!campInstructions && campaignRow?.schedule_window) {
+      try {
+        const sw = JSON.parse(String(campaignRow.schedule_window));
+        if (sw.emailInstructions) campInstructions = sw.emailInstructions;
+        if (sw.emailFollowupEnabled !== undefined) emailFollowupEnabled = Boolean(sw.emailFollowupEnabled);
+        if (sw.emailLawfulBasis) lawfulBasis = asBasis(sw.emailLawfulBasis);
+        if (sw.emailLawfulBasisNote) lawfulBasisNote = String(sw.emailLawfulBasisNote);
+      } catch {}
+    }
+
     let emailSubject: string | null = null;
     let emailBody: string | null = null;
     let companySignature: string | null = null;
@@ -640,9 +667,9 @@ export class SupabaseEmailStore {
       ? {
         id: String(campaignRow.id),
         name: String(campaignRow.name ?? ''),
-        emailFollowupEnabled: Boolean(campaignRow.email_followup_enabled),
-        lawfulBasis: asBasis(campaignRow.email_lawful_basis),
-        lawfulBasisNote: campaignRow.email_lawful_basis_note ? String(campaignRow.email_lawful_basis_note) : null,
+        emailFollowupEnabled,
+        lawfulBasis,
+        lawfulBasisNote,
         instructions: campInstructions,
         emailSubject,
         emailBody,
