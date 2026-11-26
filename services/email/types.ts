@@ -108,6 +108,7 @@ export interface FollowUpCall {
   transcript: TranscriptTurn[];
   lead: FollowUpLead | null;
   campaign: FollowUpCampaign | null;
+  outcome?: { disposition: string; notes?: string } | null;
 }
 
 export interface AutomationSettings {

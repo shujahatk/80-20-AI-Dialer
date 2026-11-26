@@ -171,28 +171,56 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
     return { jobId: job.id, status: job.status, sent: false, duplicate: claim === 'busy', reasons: [claim] };
   }
 
-  let qualification;
-  try {
-    qualification = await qualifyCall(call, deps.claude);
-  } catch (error) {
-    if (error instanceof ClaudeUnavailableError) {
-      const attempts = job.attempts + 1;
-      const permanent = attempts >= 5;
-      await store.updateJob(
-        job.id,
-        {
-          status: permanent ? 'failed' : 'retry',
-          attempts,
-          nextAttemptAt: permanent ? null : backoff(attempts, nowDate),
-          lastError: 'Claude is unavailable. The follow-up was not sent.',
-          lockedAt: null,
-        },
-        now
-      );
-      return { jobId: job.id, status: permanent ? 'failed' : 'retry', sent: false, duplicate: false, reasons: ['claude_unavailable'] };
+  let qualification: QualificationResult | undefined;
+  if (call.outcome && call.outcome.disposition === 'QUALIFIED') {
+    qualification = {
+      status: 'QUALIFIED',
+      interestLevel: 'high',
+      customerRequirements: (call.campaign?.requiredCommercialInfo && call.campaign.requiredCommercialInfo.length > 0)
+        ? call.campaign.requiredCommercialInfo
+        : ['commercial interest confirmed'],
+      mainObjections: [],
+      requestedInformation: [],
+      nextRecommendedAction: 'Commercial follow-up with quotation and technical catalog',
+      emailFollowUpEligible: true,
+      evidence: [{ quote: call.outcome.notes || 'Prospect met qualification criteria during commercial call', speaker: 'ai' }],
+      insufficientEvidence: false,
+    };
+  } else if (call.outcome && ['NEEDS_REVIEW', 'ENGAGED', 'REJECTED', 'DO_NOT_CALL', 'NO_ANSWER', 'CALLBACK_REQUESTED'].includes(call.outcome.disposition)) {
+    qualification = {
+      status: call.outcome.disposition === 'DO_NOT_CALL' ? 'DO_NOT_CONTACT' : 'REVIEW_REQUIRED',
+      interestLevel: 'none',
+      customerRequirements: [],
+      mainObjections: [],
+      requestedInformation: [],
+      nextRecommendedAction: 'No marketing email authorized',
+      emailFollowUpEligible: false,
+      evidence: [],
+      insufficientEvidence: true,
+    };
+  } else {
+    try {
+      qualification = await qualifyCall(call, deps.claude);
+    } catch (error) {
+      if (error instanceof ClaudeUnavailableError) {
+        const attempts = job.attempts + 1;
+        const permanent = attempts >= 5;
+        await store.updateJob(
+          job.id,
+          {
+            status: permanent ? 'failed' : 'retry',
+            attempts,
+            nextAttemptAt: permanent ? null : backoff(attempts, nowDate),
+            lastError: 'Claude is unavailable. The follow-up was not sent.',
+            lockedAt: null,
+          },
+          now
+        );
+        return { jobId: job.id, status: permanent ? 'failed' : 'retry', sent: false, duplicate: false, reasons: ['claude_unavailable'] };
+      }
+      const reasons = [{ code: 'qualification_invalid', message: error instanceof Error ? error.message : 'Qualification failed.' }];
+      return suppress(store, job.id, call, reasons, now);
     }
-    const reasons = [{ code: 'qualification_invalid', message: error instanceof Error ? error.message : 'Qualification failed.' }];
-    return suppress(store, job.id, call, reasons, now);
   }
 
   await store.updateJob(job.id, { qualification }, now);

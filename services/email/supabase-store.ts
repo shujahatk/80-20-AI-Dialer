@@ -537,16 +537,20 @@ export class SupabaseEmailStore {
   }
 
   async loadCall(callId: string, analyzedHint: boolean): Promise<FollowUpCall | null> {
-    const callResult = await db()
-      .from('call_sessions')
-      .select('id, organization_id, lead_id, campaign_id, status, disconnection_reason')
-      .eq('id', callId)
-      .maybeSingle();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(callId);
+    let query = db().from('call_sessions').select('id, organization_id, lead_id, campaign_id, status, disconnection_reason');
+    if (isUuid) {
+      query = query.eq('id', callId);
+    } else {
+      query = query.eq('retell_call_id', callId);
+    }
+    const callResult = await query.maybeSingle();
     const call = one<Record<string, unknown>>(callResult, 'Call');
     if (!call) return null;
     const organizationId = String(call.organization_id);
-    const [transcriptResult, leadResult, campaignResult, eventResult] = await Promise.all([
-      db().from('call_transcripts').select('*').eq('call_session_id', callId).order('created_at', { ascending: true }),
+    const canonicalSessionId = String(call.id);
+    const [transcriptResult, leadResult, campaignResult, eventResult, outcomeResult] = await Promise.all([
+      db().from('call_transcripts').select('*').eq('call_session_id', canonicalSessionId).order('created_at', { ascending: true }),
       call.lead_id
         ? db()
           .from('leads')
@@ -561,7 +565,8 @@ export class SupabaseEmailStore {
           .eq('id', call.campaign_id)
           .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
-      db().from('audit_logs').select('action').eq('entity', 'call_session').eq('entity_id', callId),
+      db().from('audit_logs').select('action').eq('entity', 'call_session').eq('entity_id', canonicalSessionId),
+      db().from('call_outcomes').select('*').eq('call_session_id', canonicalSessionId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     const transcript: TranscriptTurn[] = rows<Record<string, unknown>>(transcriptResult, 'Transcript')
       .map((row) => {
@@ -647,9 +652,14 @@ export class SupabaseEmailStore {
         requiredCommercialInfo,
       }
       : null;
+    const outcomeRow = one<Record<string, unknown>>(outcomeResult, 'Call outcome');
+    const outcome = outcomeRow
+      ? { disposition: String(outcomeRow.disposition || ''), notes: String(outcomeRow.notes || '') }
+      : null;
+
     return {
       organizationId,
-      callId,
+      callId: canonicalSessionId,
       callStatus: String(call.status),
       callFinished: FINISHED.has(String(call.status)),
       analyzed,
@@ -657,6 +667,7 @@ export class SupabaseEmailStore {
       transcript,
       lead,
       campaign,
+      outcome,
     };
   }
 }
