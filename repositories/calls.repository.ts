@@ -17,6 +17,32 @@ export type CallTranscriptInsert = Database['public']['Tables']['call_transcript
 export type WebhookEventRow = Database['public']['Tables']['webhook_events']['Row'];
 export type WebhookEventInsert = Database['public']['Tables']['webhook_events']['Insert'];
 
+export interface HydratedCallDetail {
+  id: string;
+  organization_id: string;
+  lead_id: string | null;
+  campaign_id: string | null;
+  agent_id: string | null;
+  status: string;
+  direction: string;
+  started_at: string | null;
+  ended_at: string | null;
+  duration_seconds: number;
+  from_number: string | null;
+  to_number: string | null;
+  retell_call_id: string | null;
+  provider_call_id: string | null;
+  disconnection_reason: string | null;
+  created_at: string;
+  outcome: string;
+  outcome_notes: string | null;
+  outcome_recorded_at: string | null;
+  transcript: string | null;
+  transcript_turns: Array<{ id: string; body: string; created_at: string }>;
+  recording_url: string | null;
+  analysis: Record<string, unknown> | null;
+}
+
 export interface ListCallsOptions {
   limit?: number;
   offset?: number;
@@ -507,7 +533,32 @@ export class CallsRepository {
   }
 
   /**
+   * Retrieves an outcome from public.call_outcomes by call_session_id.
+   */
+  async getOutcomeByCallSessionId(callSessionId: string): Promise<{
+    id: string;
+    organization_id: string;
+    call_session_id: string;
+    disposition: string;
+    notes: string | null;
+    recorded_by: string | null;
+    created_at: string;
+  } | null> {
+    const { data, error } = await this.supabase
+      .from('call_outcomes')
+      .select('*')
+      .eq('call_session_id', callSessionId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return null;
+    return data as any;
+  }
+
+  /**
    * Persists call outcomes to public.call_outcomes matching remote schema.
+   * If an outcome already exists for this call session, updates it; otherwise inserts.
    */
   async recordOutcome(input: {
     call_session_id: string;
@@ -517,15 +568,213 @@ export class CallsRepository {
     recorded_by?: string | null;
   }): Promise<void> {
     try {
-      await this.supabase.from('call_outcomes').insert({
-        call_session_id: input.call_session_id,
-        organization_id: input.organization_id,
-        disposition: input.disposition,
-        notes: input.notes || '',
-        recorded_by: input.recorded_by || null,
-      } as any);
-    } catch {
-      // Gracefully handle if call_outcomes insert constraints differ
+      const existing = await this.getOutcomeByCallSessionId(input.call_session_id);
+      if (existing) {
+        await this.supabase
+          .from('call_outcomes')
+          .update({
+            disposition: input.disposition,
+            notes: input.notes || existing.notes || '',
+            recorded_by: input.recorded_by || existing.recorded_by || null,
+          } as any)
+          .eq('id', existing.id);
+      } else {
+        await this.supabase.from('call_outcomes').insert({
+          call_session_id: input.call_session_id,
+          organization_id: input.organization_id,
+          disposition: input.disposition,
+          notes: input.notes || '',
+          recorded_by: input.recorded_by || null,
+        } as any);
+      }
+    } catch (err) {
+      console.warn('[CallsRepository] recordOutcome error:', err);
     }
+  }
+
+  /**
+   * Retrieves all call sessions for a lead along with their outcomes, transcripts, recordings, and AI analysis.
+   */
+  async listCallsWithDetailsForLead(
+    leadId: string,
+    orgId: string,
+    limit: number = 50
+  ): Promise<HydratedCallDetail[]> {
+    const { data: calls, error: callsErr } = await this.supabase
+      .from('call_sessions')
+      .select('*')
+      .eq('lead_id', leadId)
+      .eq('organization_id', orgId)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+
+    if (callsErr || !calls || calls.length === 0) {
+      return [];
+    }
+
+    const callIds = calls.map((c) => c.id);
+
+    // Batch query outcomes
+    const { data: outcomes } = await this.supabase
+      .from('call_outcomes')
+      .select('*')
+      .in('call_session_id', callIds)
+      .order('created_at', { ascending: false });
+
+    const outcomeMap = new Map<string, any>();
+    if (outcomes) {
+      for (const o of outcomes) {
+        if (!outcomeMap.has(o.call_session_id)) {
+          outcomeMap.set(o.call_session_id, o);
+        }
+      }
+    }
+
+    // Batch query transcripts
+    const { data: transcripts } = await this.supabase
+      .from('call_transcripts')
+      .select('*')
+      .in('call_session_id', callIds)
+      .order('created_at', { ascending: true });
+
+    const transcriptMap = new Map<string, any[]>();
+    if (transcripts) {
+      for (const t of transcripts) {
+        const arr = transcriptMap.get(t.call_session_id) || [];
+        arr.push(t);
+        transcriptMap.set(t.call_session_id, arr);
+      }
+    }
+
+    // Batch query recordings
+    const { data: recordings } = await this.supabase
+      .from('call_recordings')
+      .select('*')
+      .in('call_session_id', callIds)
+      .order('created_at', { ascending: false });
+
+    const recordingMap = new Map<string, string>();
+    if (recordings) {
+      for (const r of recordings) {
+        if (!recordingMap.has(r.call_session_id)) {
+          recordingMap.set(r.call_session_id, r.external_url || r.storage_path || '');
+        }
+      }
+    }
+
+    // Batch query audit_logs for call_analyzed
+    const { data: auditLogs } = await this.supabase
+      .from('audit_logs')
+      .select('*')
+      .eq('action', 'call.call_analyzed')
+      .eq('entity', 'call_session')
+      .in('entity_id', callIds)
+      .order('created_at', { ascending: false });
+
+    const analysisMap = new Map<string, any>();
+    if (auditLogs) {
+      for (const a of auditLogs) {
+        if (!analysisMap.has(a.entity_id)) {
+          analysisMap.set(a.entity_id, a.metadata);
+        }
+      }
+    }
+
+    return calls.map((c) => {
+      const outcomeRecord = outcomeMap.get(c.id);
+      const callTranscripts = transcriptMap.get(c.id) || [];
+      const joinedTranscript = callTranscripts.map((t) => t.body).join('\n');
+      const analysisMetadata = analysisMap.get(c.id) || null;
+
+      const outcome =
+        outcomeRecord?.disposition ||
+        analysisMetadata?.call_outcome ||
+        analysisMetadata?.qualification?.outcome ||
+        (c.status === 'completed' ? 'COMPLETED' : c.status.toUpperCase());
+
+      return {
+        id: c.id,
+        organization_id: c.organization_id,
+        lead_id: c.lead_id,
+        campaign_id: c.campaign_id,
+        agent_id: c.agent_id,
+        status: c.status,
+        direction: c.direction,
+        started_at: c.started_at,
+        ended_at: c.ended_at,
+        duration_seconds: c.duration_seconds || 0,
+        from_number: c.from_number,
+        to_number: c.to_number,
+        retell_call_id: c.retell_call_id,
+        provider_call_id: c.retell_call_id,
+        disconnection_reason: c.disconnection_reason,
+        created_at: c.created_at,
+        outcome,
+        outcome_notes: outcomeRecord?.notes || analysisMetadata?.summary || null,
+        outcome_recorded_at: outcomeRecord?.created_at || null,
+        transcript: joinedTranscript || null,
+        transcript_turns: callTranscripts.map((t) => ({ id: t.id, body: t.body, created_at: t.created_at })),
+        recording_url: recordingMap.get(c.id) || null,
+        analysis: analysisMetadata,
+      };
+    });
+  }
+
+  /**
+   * Retrieves full details for a single call session.
+   */
+  async getCallDetails(callSessionId: string, orgId?: string): Promise<HydratedCallDetail | null> {
+    const call = await this.getById(callSessionId, orgId);
+    if (!call) return null;
+
+    const [outcome, transcripts, recording, auditLogs] = await Promise.all([
+      this.getOutcomeByCallSessionId(callSessionId),
+      this.getTranscriptsByCallId(callSessionId),
+      this.getRecordingByCallId(callSessionId),
+      this.supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('action', 'call.call_analyzed')
+        .eq('entity', 'call_session')
+        .eq('entity_id', callSessionId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const joinedTranscript = transcripts.map((t) => t.body).join('\n');
+    const analysisMetadata = (auditLogs.data?.metadata as Record<string, unknown>) || null;
+
+    const outcomeDisposition =
+      outcome?.disposition ||
+      (analysisMetadata?.call_outcome as string) ||
+      ((analysisMetadata?.qualification as any)?.outcome as string) ||
+      (call.status === 'completed' ? 'COMPLETED' : call.status.toUpperCase());
+
+    return {
+      id: call.id,
+      organization_id: call.organization_id,
+      lead_id: call.lead_id,
+      campaign_id: call.campaign_id,
+      agent_id: call.agent_id,
+      status: call.status,
+      direction: call.direction,
+      started_at: call.started_at,
+      ended_at: call.ended_at,
+      duration_seconds: call.duration_seconds || 0,
+      from_number: call.from_number,
+      to_number: call.to_number,
+      retell_call_id: call.retell_call_id,
+      provider_call_id: call.retell_call_id,
+      disconnection_reason: call.disconnection_reason,
+      created_at: call.created_at,
+      outcome: outcomeDisposition,
+      outcome_notes: outcome?.notes || (analysisMetadata?.summary as string) || null,
+      outcome_recorded_at: outcome?.created_at || null,
+      transcript: joinedTranscript || null,
+      transcript_turns: transcripts.map((t) => ({ id: t.id, body: t.body, created_at: t.created_at })),
+      recording_url: recording?.external_url || recording?.storage_path || null,
+      analysis: analysisMetadata,
+    };
   }
 }

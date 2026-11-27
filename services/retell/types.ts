@@ -218,9 +218,17 @@ export interface NormalizedPostCallAnalysis {
   // Retell Native Lead Qualification Fields
   decisionMakerIdentified?: boolean;
   contactName?: string | null;
+  companyName?: string | null;
   jobTitle?: string | null;
   emailAddress?: string | null;
   directPhoneNumber?: string | null;
+  materialInterest?: string | null;
+  estimatedVolume?: string | null;
+  materialGrade?: string | null;
+  purchaseIntent?: string | null;
+  commercialRequirements?: string | null;
+  customerObjections?: string | null;
+  nextSteps?: string | null;
   interestLevel?: string;
   materialContext?: string | null;
   followUpRequirements?: string | null;

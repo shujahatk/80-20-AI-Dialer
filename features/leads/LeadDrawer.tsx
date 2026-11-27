@@ -8,7 +8,64 @@ import type { HydratedLeadNote } from '@/repositories/lead-notes.repository';
 import type { LeadTagRow } from '@/repositories/lead-tags.repository';
 import { Tabs } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { leadStatusLabel, leadStatusTone, priorityLabel, priorityTone } from '@/lib/ui/status';
+import {
+  leadStatusLabel,
+  leadStatusTone,
+  priorityLabel,
+  priorityTone,
+  callOutcomeLabel,
+  callOutcomeTone,
+} from '@/lib/ui/status';
+
+export interface LeadCallRecord {
+  id: string;
+  retell_call_id?: string | null;
+  provider_call_id?: string | null;
+  lead_id?: string | null;
+  campaign_id?: string | null;
+  status: string;
+  direction?: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_seconds?: number;
+  disconnection_reason?: string | null;
+  outcome: string;
+  outcome_notes?: string | null;
+  outcome_recorded_at?: string | null;
+  transcript?: string | null;
+  transcript_turns?: Array<{ id: string; body: string; created_at?: string }>;
+  recording_url?: string | null;
+  analysis?: {
+    summary?: string;
+    call_outcome?: string;
+    sentiment?: string;
+    sentiment_score?: number;
+    is_successful?: boolean;
+    in_voicemail?: boolean;
+    qualification?: {
+      outcome?: string;
+      isQualified?: boolean;
+      decisionMakerInvolved?: boolean;
+      materialInterest?: string | null;
+      estimatedVolume?: string | null;
+      materialGrade?: string | null;
+      purchaseIntent?: string | null;
+      commercialRequirements?: string | null;
+      customerObjections?: string | null;
+      nextSteps?: string | null;
+      callbackRequested?: boolean;
+      callbackTime?: string | null;
+      disqualificationReasons?: string[];
+      evidence?: string[];
+      contactName?: string | null;
+      companyName?: string | null;
+      jobTitle?: string | null;
+      emailAddress?: string | null;
+      directPhoneNumber?: string | null;
+      customData?: Record<string, unknown>;
+    };
+  } | null;
+}
 
 interface LeadDrawerProps {
   leadId: string | null;
@@ -36,8 +93,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState('overview');
-  const [leadCalls, setLeadCalls] = useState<Array<Record<string, string>>>([]);
+  const [leadCalls, setLeadCalls] = useState<LeadCallRecord[]>([]);
   const [callsLoaded, setCallsLoaded] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [showTranscriptCallId, setShowTranscriptCallId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!leadId) return;
@@ -47,6 +106,8 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     setDrawerTab('overview');
     setCallsLoaded(false);
     setLeadCalls([]);
+    setExpandedCallId(null);
+    setShowTranscriptCallId(null);
 
     authenticatedFetch(`/api/leads/${leadId}`)
       .then((res) => res.json())
@@ -78,20 +139,11 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
 
   useEffect(() => {
     if (!leadId || drawerTab !== 'calls' || callsLoaded) return;
-    authenticatedFetch(`/api/calls?limit=20`)
+    authenticatedFetch(`/api/leads/${leadId}/calls?limit=50`)
       .then((res) => res.json())
       .then((data) => {
-        const rows = Array.isArray(data.data) ? data.data : [];
-        setLeadCalls(
-          rows
-            .filter((row: Record<string, unknown>) => String(row.lead_id || '') === leadId)
-            .map((row: Record<string, unknown>) => ({
-              id: String(row.id),
-              outcome: String(row.outcome || row.status || 'completed'),
-              started: row.started_at ? String(row.started_at) : '',
-              duration: String(row.duration_seconds || 0),
-            }))
-        );
+        const rows = Array.isArray(data.data) ? (data.data as LeadCallRecord[]) : [];
+        setLeadCalls(rows);
         setCallsLoaded(true);
       })
       .catch(() => setCallsLoaded(true));
@@ -695,19 +747,253 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               )}
 
               {drawerTab === 'calls' && (
-                <div className="flex flex-col gap-2">
-                  {!callsLoaded && <div className="text-[13px] text-on-surface-variant">Loading related calls...</div>}
-                  {callsLoaded && leadCalls.length === 0 && (
-                    <div className="text-[13px] text-on-surface-variant">No related calls in the latest history.</div>
-                  )}
-                  {leadCalls.map((call) => (
-                    <div key={call.id} className="rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-[13px]">
-                      <div className="font-semibold capitalize text-on-surface">{call.outcome}</div>
-                      <div className="text-on-surface-variant">
-                        {call.started ? new Date(call.started).toLocaleString() : 'Time unavailable'} · {call.duration}s
-                      </div>
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-border">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                      Call History ({leadCalls.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCallsLoaded(false);
+                        authenticatedFetch(`/api/leads/${leadId}/calls?limit=50`)
+                          .then((res) => res.json())
+                          .then((data) => {
+                            setLeadCalls(Array.isArray(data.data) ? data.data : []);
+                            setCallsLoaded(true);
+                          })
+                          .catch(() => setCallsLoaded(true));
+                      }}
+                      className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                    >
+                      <Icon name="refresh" size={13} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+
+                  {!callsLoaded && (
+                    <div className="py-6 text-center text-xs text-on-surface-variant flex items-center justify-center gap-2">
+                      <Icon name="hourglass_empty" size={16} className="animate-spin" />
+                      <span>Loading call records...</span>
                     </div>
-                  ))}
+                  )}
+
+                  {callsLoaded && leadCalls.length === 0 && (
+                    <div className="p-4 text-center rounded-xl bg-surface-container-low border border-outline-variant/10 text-xs text-on-surface-variant">
+                      No calls recorded for this lead yet.
+                    </div>
+                  )}
+
+                  {leadCalls.map((call) => {
+                    const isExpanded = expandedCallId === call.id;
+                    const isTranscriptOpen = showTranscriptCallId === call.id;
+                    const q = call.analysis?.qualification;
+                    const summary = call.outcome_notes || call.analysis?.summary;
+
+                    return (
+                      <div
+                        key={call.id}
+                        className="rounded-xl border border-border bg-surface-elevated p-3.5 text-xs flex flex-col gap-2.5 transition-all shadow-sm"
+                      >
+                        {/* Call Header */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 font-semibold text-on-surface text-sm">
+                              <Icon name="phone_forwarded" size={15} className="text-primary" />
+                              <span>Outbound AI Call</span>
+                              <span className="text-xs font-normal text-on-surface-variant">· {call.duration_seconds || 0}s</span>
+                            </div>
+                            <div className="text-[11px] text-on-surface-variant">
+                              {call.started_at ? new Date(call.started_at).toLocaleString() : 'Time unavailable'}
+                            </div>
+                          </div>
+                          <Badge tone={callOutcomeTone(call.outcome)}>
+                            {callOutcomeLabel(call.outcome)}
+                          </Badge>
+                        </div>
+
+                        {/* Summary / Notes */}
+                        {summary && (
+                          <div className="p-2 rounded bg-surface-container-low border border-outline-variant/10 text-xs text-on-surface/90 italic leading-relaxed">
+                            &ldquo;{summary}&rdquo;
+                          </div>
+                        )}
+
+                        {/* Disconnection Reason if non-standard */}
+                        {call.disconnection_reason && !['user_hangup', 'agent_hangup'].includes(call.disconnection_reason.toLowerCase()) && (
+                          <div className="text-[11px] text-on-surface-variant flex items-center gap-1">
+                            <span className="font-medium text-on-surface">Disconnection:</span>
+                            <span>{call.disconnection_reason}</span>
+                          </div>
+                        )}
+
+                        {/* Expandable Details Toggle */}
+                        <div className="pt-1 flex items-center justify-between border-t border-outline-variant/10">
+                          <button
+                            type="button"
+                            onClick={() => setExpandedCallId(isExpanded ? null : call.id)}
+                            className="text-xs text-primary font-medium flex items-center gap-1 hover:underline"
+                          >
+                            <Icon name={isExpanded ? 'expand_less' : 'expand_more'} size={15} />
+                            <span>{isExpanded ? 'Hide Call Details' : 'View Call Details'}</span>
+                          </button>
+
+                          {call.retell_call_id && (
+                            <span className="font-mono text-[10px] text-on-surface-variant/80" title="Retell Call ID">
+                              ID: {call.retell_call_id.slice(0, 16)}...
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Expanded Call Details */}
+                        {isExpanded && (
+                          <div className="mt-1 pt-2 border-t border-outline-variant/10 flex flex-col gap-3 animate-in fade-in">
+                            {/* Qualification & Commercial Breakdown */}
+                            <div className="bg-surface-container-lowest p-2.5 rounded-lg border border-outline-variant/15 flex flex-col gap-2">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                                Commercial Qualification
+                              </span>
+
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Decision Maker</span>
+                                  <span className="font-medium text-on-surface">
+                                    {q?.decisionMakerInvolved ? 'Yes (Confirmed)' : 'No / Unconfirmed'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Contact Name & Title</span>
+                                  <span className="font-medium text-on-surface">
+                                    {q?.contactName || '—'}{q?.jobTitle ? ` (${q.jobTitle})` : ''}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Material / Product</span>
+                                  <span className="font-medium text-on-surface">{q?.materialInterest || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Estimated Volume</span>
+                                  <span className="font-medium text-on-surface">{q?.estimatedVolume || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Material Grade</span>
+                                  <span className="font-medium text-on-surface">{q?.materialGrade || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Purchase Timeline</span>
+                                  <span className="font-medium text-on-surface">{q?.purchaseIntent || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Direct Phone</span>
+                                  <span className="font-mono text-on-surface">{q?.directPhoneNumber || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-on-surface-variant block">Email Address</span>
+                                  <span className="font-mono text-on-surface">{q?.emailAddress || '—'}</span>
+                                </div>
+                              </div>
+
+                              {q?.commercialRequirements && (
+                                <div className="pt-1 text-xs">
+                                  <span className="text-[10px] text-on-surface-variant block">Commercial Requirements</span>
+                                  <span className="text-on-surface">{q.commercialRequirements}</span>
+                                </div>
+                              )}
+
+                              {q?.customerObjections && (
+                                <div className="pt-1 text-xs">
+                                  <span className="text-[10px] text-on-surface-variant block">Customer Objections</span>
+                                  <span className="text-on-surface text-error">{q.customerObjections}</span>
+                                </div>
+                              )}
+
+                              {q?.nextSteps && (
+                                <div className="pt-1 text-xs">
+                                  <span className="text-[10px] text-on-surface-variant block">Next Action Items</span>
+                                  <span className="text-primary font-medium">{q.nextSteps}</span>
+                                </div>
+                              )}
+
+                              {q?.callbackRequested && q.callbackTime && (
+                                <div className="pt-1 text-xs">
+                                  <span className="text-[10px] text-on-surface-variant block">Scheduled Callback</span>
+                                  <span className="text-tertiary font-semibold">{q.callbackTime}</span>
+                                </div>
+                              )}
+
+                              {q?.disqualificationReasons && q.disqualificationReasons.length > 0 && (
+                                <div className="pt-1 text-xs">
+                                  <span className="text-[10px] text-error font-medium block">Disqualification Reasons:</span>
+                                  <ul className="list-disc list-inside text-[11px] text-on-surface-variant">
+                                    {q.disqualificationReasons.map((reason, idx) => (
+                                      <li key={idx}>{reason}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Audio Recording */}
+                            {call.recording_url && (
+                              <div className="flex flex-col gap-1">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                                  Call Audio Recording
+                                </span>
+                                <audio controls src={call.recording_url} className="w-full h-8" preload="none" />
+                              </div>
+                            )}
+
+                            {/* Full Conversation Transcript Accordion */}
+                            <div className="flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setShowTranscriptCallId(isTranscriptOpen ? null : call.id)}
+                                className="flex items-center justify-between px-2.5 py-1.5 rounded bg-surface-container-high hover:bg-surface-bright text-xs text-on-surface transition-colors font-medium"
+                              >
+                                <span>Conversation Transcript</span>
+                                <Icon name={isTranscriptOpen ? 'expand_less' : 'expand_more'} size={14} />
+                              </button>
+
+                              {isTranscriptOpen && (
+                                <div className="p-2.5 rounded bg-surface-container-low border border-outline-variant/10 max-h-60 overflow-y-auto flex flex-col gap-1.5 text-xs">
+                                  {call.transcript_turns && call.transcript_turns.length > 0 ? (
+                                    call.transcript_turns.map((turn, tIdx) => {
+                                      const isAi = turn.body.toLowerCase().startsWith('ai:') || turn.body.toLowerCase().startsWith('agent:');
+                                      return (
+                                        <div
+                                          key={turn.id || tIdx}
+                                          className={`p-1.5 rounded ${isAi ? 'bg-primary/5 border border-primary/15' : 'bg-surface-elevated border border-outline-variant/10'}`}
+                                        >
+                                          <div className={`font-semibold text-[10px] ${isAi ? 'text-primary' : 'text-on-surface'}`}>
+                                            {isAi ? 'AI Agent' : 'Lead'}
+                                          </div>
+                                          <div className="text-on-surface text-xs whitespace-pre-wrap">
+                                            {turn.body.replace(/^(ai|agent|lead|user|operator|system):\s*/i, '')}
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : call.transcript ? (
+                                    <pre className="whitespace-pre-wrap font-sans text-xs text-on-surface leading-relaxed">
+                                      {call.transcript}
+                                    </pre>
+                                  ) : (
+                                    <span className="text-on-surface-variant italic">No transcript recorded for this call.</span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Provider Reference */}
+                            <div className="text-[10px] text-on-surface-variant font-mono flex items-center justify-between">
+                              <span>Retell Call: {call.retell_call_id || 'N/A'}</span>
+                              <span>Session: {call.id.slice(0, 8)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </>

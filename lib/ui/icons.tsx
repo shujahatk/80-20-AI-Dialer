@@ -148,6 +148,7 @@ export const IconMap: Record<string, LucideIcon> = {
   expand_less: ChevronUp,
   chevron_down: ChevronDown,
   chevron_up: ChevronUp,
+  hourglass_empty: Loader2,
   chevron_left: ChevronLeft,
   chevron_right: ChevronRight,
   keyboard_double_arrow_left: ChevronsLeft,

@@ -13,6 +13,13 @@ export async function GET(request: NextRequest) {
     const callsService = new CallsService(supabase);
 
     const limit = parseInt(request.nextUrl.searchParams.get('limit') || '50', 10);
+    const leadId = request.nextUrl.searchParams.get('leadId') || request.nextUrl.searchParams.get('lead_id');
+
+    if (leadId) {
+      const calls = await callsService.getCallsForLead(leadId, auth.organizationId, limit);
+      return NextResponse.json({ success: true, data: calls });
+    }
+
     const calls = await callsService.getCalls(auth.organizationId, limit);
 
     return NextResponse.json({ success: true, data: calls });

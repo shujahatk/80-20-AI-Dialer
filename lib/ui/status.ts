@@ -84,28 +84,48 @@ export function priorityTone(priority?: string): BadgeTone {
 
 export function callOutcomeLabel(outcome?: string, fallback?: string): string {
   if (fallback && fallback !== outcome) return fallback;
-  switch (outcome) {
-    case 'booked_meeting':
-    case 'appointment':
-      return 'Meeting booked';
-    case 'qualified_followup':
-    case 'qualified':
+  const norm = String(outcome || '').trim().toUpperCase();
+  switch (norm) {
+    case 'QUALIFIED':
+    case 'QUALIFIED_FOLLOWUP':
       return 'Qualified';
-    case 'callback_scheduled':
-    case 'callback':
-      return 'Callback';
-    case 'voicemail_dropped':
-    case 'voicemail':
+    case 'NEEDS_REVIEW':
+    case 'NEEDS-REVIEW':
+      return 'Needs Review';
+    case 'CALLBACK_REQUESTED':
+    case 'CALLBACK_SCHEDULED':
+    case 'CALLBACK':
+      return 'Callback Requested';
+    case 'FOLLOW_UP_REQUIRED':
+    case 'FOLLOW_UP':
+    case 'FOLLOWUP':
+      return 'Follow-up Required';
+    case 'INTERESTED':
+      return 'Interested';
+    case 'NOT_INTERESTED':
+      return 'Not Interested';
+    case 'NOT_QUALIFIED':
+      return 'Not Qualified';
+    case 'REJECTED':
+      return 'Rejected';
+    case 'NO_ANSWER':
+      return 'No Answer';
+    case 'BUSY':
+      return 'Busy';
+    case 'VOICEMAIL':
+    case 'VOICEMAIL_DROPPED':
       return 'Voicemail';
-    case 'not_interested':
-      return 'Not interested';
-    case 'dnc':
-      return 'Do not call';
-    case 'failed':
+    case 'FAILED':
       return 'Failed';
-    case 'no_answer':
-      return 'No answer';
-    case 'connected':
+    case 'COMPLETED':
+      return 'Completed';
+    case 'DO_NOT_CALL':
+    case 'DNC':
+      return 'Do Not Call';
+    case 'BOOKED_MEETING':
+    case 'APPOINTMENT':
+      return 'Meeting booked';
+    case 'CONNECTED':
       return 'Answered';
     default:
       return fallback || outcome || 'Completed';
@@ -113,23 +133,37 @@ export function callOutcomeLabel(outcome?: string, fallback?: string): string {
 }
 
 export function callOutcomeTone(outcome?: CallOutcome | string): BadgeTone {
-  switch (outcome) {
-    case 'booked_meeting':
-    case 'appointment':
-    case 'qualified_followup':
-    case 'qualified':
-    case 'connected':
+  const norm = String(outcome || '').trim().toUpperCase();
+  switch (norm) {
+    case 'QUALIFIED':
+    case 'QUALIFIED_FOLLOWUP':
+    case 'BOOKED_MEETING':
+    case 'APPOINTMENT':
       return 'success';
-    case 'callback_scheduled':
-    case 'callback':
-    case 'voicemail_dropped':
-    case 'voicemail':
+    case 'NEEDS_REVIEW':
+    case 'NEEDS-REVIEW':
+    case 'CALLBACK_REQUESTED':
+    case 'CALLBACK_SCHEDULED':
+    case 'CALLBACK':
       return 'warning';
-    case 'not_interested':
-    case 'dnc':
-    case 'failed':
-    case 'no_answer':
+    case 'FOLLOW_UP_REQUIRED':
+    case 'FOLLOW_UP':
+    case 'FOLLOWUP':
+    case 'INTERESTED':
+    case 'CONNECTED':
+      return 'info';
+    case 'DO_NOT_CALL':
+    case 'DNC':
+    case 'FAILED':
       return 'error';
+    case 'NOT_INTERESTED':
+    case 'NOT_QUALIFIED':
+    case 'REJECTED':
+    case 'NO_ANSWER':
+    case 'BUSY':
+    case 'VOICEMAIL':
+    case 'VOICEMAIL_DROPPED':
+    case 'COMPLETED':
     default:
       return 'neutral';
   }

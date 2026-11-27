@@ -602,6 +602,22 @@ export class CallsService {
     return this.repo.list(orgId, limit);
   }
 
+  /**
+   * Retrieves all hydrated call records with outcomes, transcripts, recordings and analysis for a lead.
+   */
+  async getCallsForLead(leadId: string, organizationId?: string, limit: number = 50) {
+    const orgId = organizationId ?? this.defaultOrgId;
+    return this.repo.listCallsWithDetailsForLead(leadId, orgId, limit);
+  }
+
+  /**
+   * Retrieves full details for a single call session.
+   */
+  async getCallFullDetails(callId: string, organizationId?: string) {
+    const orgId = organizationId ?? this.defaultOrgId;
+    return this.repo.getCallDetails(callId, orgId);
+  }
+
   async getCallById(id: string, organizationId?: string) {
     const orgId = organizationId ?? this.defaultOrgId;
     return this.repo.getById(id, orgId);

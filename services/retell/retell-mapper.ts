@@ -145,11 +145,22 @@ export class RetellMapper {
       summaryLower.includes('decision maker')
     );
 
-    // 2. Contact details
-    const contactName = (customData.contact_name || customData.decision_maker_name || null) as string | null;
-    const jobTitle = (customData.job_title || customData.title || null) as string | null;
+    // 2. Contact & Commercial details
+    const contactName = (customData.contact_name || customData.decision_maker_name || customData.prospect_name || null) as string | null;
+    const companyName = (customData.company_name || customData.company || customData.organization || null) as string | null;
+    const jobTitle = (customData.job_title || customData.title || customData.position || null) as string | null;
     const emailAddress = (customData.email_address || customData.email || null) as string | null;
     const directPhoneNumber = (customData.direct_phone_number || customData.direct_phone || customData.phone || null) as string | null;
+
+    // Commercial parameters
+    const materialInterest = (customData.material_interest || customData.material || customData.materials || customData.product || customData.product_interest || null) as string | null;
+    const estimatedVolume = (customData.volume || customData.estimated_volume || customData.monthly_volume || customData.tonnage || customData.quantity || null) as string | null;
+    const materialGrade = (customData.material_grade || customData.grade || customData.spec || customData.specification || null) as string | null;
+    const purchaseIntent = (customData.purchase_intent || customData.intent || customData.timeline || customData.buying_intent || null) as string | null;
+    const commercialRequirements = (customData.commercial_requirements || customData.pricing_requirements || customData.requirements || null) as string | null;
+    const customerObjections = (customData.customer_objections || customData.objections || customData.concerns || null) as string | null;
+    const nextSteps = (customData.next_steps || customData.action_items || customData.next_action || null) as string | null;
+    const callbackTime = (customData.callback_time || customData.scheduled_callback || customData.call_back_time || null) as string | null;
 
     // 3. Interest level
     let interestLevel = 'none';
@@ -208,11 +219,20 @@ export class RetellMapper {
       qualificationData: customData,
       dncRequested,
       callbackRequested,
+      callbackTime,
       decisionMakerIdentified,
       contactName,
+      companyName,
       jobTitle,
       emailAddress,
       directPhoneNumber,
+      materialInterest,
+      estimatedVolume,
+      materialGrade,
+      purchaseIntent,
+      commercialRequirements,
+      customerObjections,
+      nextSteps,
       interestLevel,
       materialContext,
       followUpRequirements,

@@ -8,7 +8,7 @@ import { getServerEnv } from '@/lib/env';
 import { RetellClient } from './RetellClient';
 import { RetellMapper } from './retell-mapper';
 import { retellEventToNormalizedType } from './retell-events';
-import type { RetellWebhookEvent, RetellMetadata } from './types';
+import type { RetellWebhookEvent, RetellMetadata, RetellCallResponse } from './types';
 import { CallsRepository } from '@/repositories/calls.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
 import { CampaignsRepository, unpackCampaignInstructions } from '@/repositories/campaigns.repository';
@@ -249,6 +249,51 @@ export class RetellWebhookService {
               },
             });
 
+            // Check if an outcome is already recorded (e.g. from prior call_analyzed)
+            const existingOutcome = await this.callsRepo.getOutcomeByCallSessionId(callId);
+
+            if (!existingOutcome) {
+              // If Retell included call_analysis inside call_ended, process analysis immediately!
+              if (call.call_analysis) {
+                await this.processCallAnalysis({
+                  callId,
+                  organizationId,
+                  call,
+                  externalEventId,
+                  metadata,
+                  rmCall,
+                });
+              } else {
+                // If no analysis yet, record non-connected outcome based on disconnection reason
+                const reason = (call.disconnection_reason || '').toLowerCase();
+                let nonConnectedOutcome: string | null = null;
+                let nonConnectedNotes = '';
+
+                if (reason.includes('no_answer') || reason.includes('dial_no_answer')) {
+                  nonConnectedOutcome = 'NO_ANSWER';
+                  nonConnectedNotes = 'Prospect did not answer the phone.';
+                } else if (reason.includes('busy') || reason.includes('dial_busy')) {
+                  nonConnectedOutcome = 'BUSY';
+                  nonConnectedNotes = 'Line was busy.';
+                } else if (reason.includes('voicemail') || reason.includes('machine')) {
+                  nonConnectedOutcome = 'VOICEMAIL';
+                  nonConnectedNotes = 'Voicemail or answering machine reached.';
+                } else if (reason.includes('dial_failed') || reason.includes('failed')) {
+                  nonConnectedOutcome = 'FAILED';
+                  nonConnectedNotes = 'Call connection failed at provider.';
+                }
+
+                if (nonConnectedOutcome) {
+                  await this.callsRepo.recordOutcome({
+                    call_session_id: callId,
+                    organization_id: organizationId,
+                    disposition: nonConnectedOutcome,
+                    notes: nonConnectedNotes,
+                  });
+                }
+              }
+            }
+
             // Sync campaign lead progress if part of an outbound campaign
             if (metadata.campaignLeadId && metadata.campaignId) {
               const reason = (call.disconnection_reason || '').toLowerCase();
@@ -268,148 +313,23 @@ export class RetellWebhookService {
 
         case 'call_analyzed': {
           if (callId && organizationId) {
-            const analysis = RetellMapper.mapRetellAnalysisToRM(call.call_analysis);
-
-            // Load campaign configuration & criteria if campaign is associated
-            let campaignCriteria = null;
-            let campaignRow = null;
-            const effectiveCampaignId = metadata.campaignId || (metadata as any).campaign_id || (call as any).campaign_id || rmCall?.campaign_id || null;
-            const effectiveLeadId = metadata.leadId || (metadata as any).lead_id || (call as any).lead_id || rmCall?.lead_id || null;
-            if (effectiveCampaignId) {
-              try {
-                campaignRow = await this.campaignsRepo.getById(effectiveCampaignId, organizationId);
-                if (campaignRow) {
-                  const unpacked = unpackCampaignInstructions(campaignRow.email_instructions);
-                  campaignCriteria = (campaignRow as any).qualificationCriteria || unpacked.qualificationCriteria || null;
-                }
-              } catch (campErr) {
-                console.warn('[RetellWebhookService] Campaign lookup failed for qualification:', campErr);
-              }
-            }
-
-            // Run deterministic qualification evaluation against campaign criteria
-            const qualificationEval = evaluateCampaignPostCallQualification(
-              {
-                callOutcome: analysis.callOutcome,
-                leadStatus: analysis.leadStatus,
-                summary: analysis.summary,
-                sentiment: analysis.sentiment,
-                dncRequested: analysis.dncRequested,
-                inVoicemail: analysis.inVoicemail,
-                disconnectionReason: call.disconnection_reason,
-                decisionMakerIdentified: analysis.decisionMakerIdentified,
-                contactName: analysis.contactName,
-                jobTitle: analysis.jobTitle,
-                emailAddress: analysis.emailAddress,
-                directPhoneNumber: analysis.directPhoneNumber,
-                interestLevel: analysis.interestLevel,
-                materialContext: analysis.materialContext,
-                customData: analysis.qualificationData,
-              },
-              campaignCriteria
-            );
-
-            // Persist call outcome entry to verified call_outcomes table
-            await this.callsRepo.recordOutcome({
-              call_session_id: callId,
-              organization_id: organizationId,
-              disposition: qualificationEval.outcome,
-              notes: qualificationEval.summary || analysis.summary || '',
+            // Update session status and completion
+            const durationSec = call.duration_ms ? Math.round(call.duration_ms / 1000) : undefined;
+            await this.callsRepo.update(callId, organizationId, {
+              status: 'completed',
+              ended_at: call.end_timestamp ? new Date(call.end_timestamp).toISOString() : new Date().toISOString(),
+              duration_seconds: durationSec,
+              disconnection_reason: call.disconnection_reason || null,
             });
 
-            // Log post-call analysis event with complete qualification extraction
-            await this.callsRepo.logEvent({
-              organization_id: organizationId,
-              call_id: callId,
-              event_type: retellEventToNormalizedType('call_analyzed'),
-              provider_event_id: externalEventId,
-              payload: {
-                summary: analysis.summary,
-                call_outcome: qualificationEval.outcome,
-                sentiment: analysis.sentiment,
-                sentiment_score: analysis.sentimentScore,
-                is_successful: analysis.isSuccessful,
-                in_voicemail: analysis.inVoicemail,
-                qualification: {
-                  outcome: qualificationEval.outcome,
-                  isQualified: qualificationEval.isQualified,
-                  decisionMakerInvolved: qualificationEval.decisionMakerInvolved,
-                  materialInterest: qualificationEval.materialInterest,
-                  estimatedVolume: qualificationEval.estimatedVolume,
-                  purchaseIntent: qualificationEval.purchaseIntent,
-                  commercialRequirements: qualificationEval.commercialRequirements,
-                  disqualificationReasons: qualificationEval.disqualificationReasons,
-                  evidence: qualificationEval.evidence,
-                  contactName: analysis.contactName,
-                  jobTitle: analysis.jobTitle,
-                  emailAddress: analysis.emailAddress,
-                  directPhoneNumber: analysis.directPhoneNumber,
-                  customData: analysis.qualificationData,
-                },
-              } as unknown as Json,
+            await this.processCallAnalysis({
+              callId,
+              organizationId,
+              call,
+              externalEventId,
+              metadata,
+              rmCall,
             });
-
-            // Persist qualification results directly to lead record
-            if (effectiveLeadId) {
-              const leadUpdate: Record<string, any> = {
-                status: qualificationEval.recommendedDbStatus,
-                notes: `[Call ${qualificationEval.outcome}] ${qualificationEval.summary}`,
-              };
-
-              if (analysis.contactName) {
-                leadUpdate.name = analysis.contactName;
-              }
-              if (analysis.jobTitle) {
-                leadUpdate.title = analysis.jobTitle;
-              }
-              if (analysis.emailAddress) {
-                leadUpdate.email = analysis.emailAddress;
-              }
-              if (analysis.directPhoneNumber) {
-                leadUpdate.phone = analysis.directPhoneNumber;
-              }
-
-              if (qualificationEval.outcome === 'DO_NOT_CALL') {
-                await this.leadsRepo.markDnc(effectiveLeadId, organizationId, 'Prospect requested DNC during AI call');
-              } else {
-                await this.leadsRepo.update(effectiveLeadId, organizationId, leadUpdate);
-              }
-
-              // Update campaign enrollment state & outcome
-              if (effectiveCampaignId) {
-                try {
-                  const enrollmentOutcome = qualificationEval.outcome.toLowerCase();
-                  const enrollmentState =
-                    qualificationEval.outcome === 'CALLBACK_REQUESTED' || qualificationEval.outcome === 'NO_ANSWER'
-                      ? 'pending'
-                      : 'completed';
-
-                  await this.supabase
-                    .from('campaign_enrollments')
-                    .update({
-                      outcome: enrollmentOutcome,
-                      state: enrollmentState,
-                      last_call_id: callId,
-                      updated_at: new Date().toISOString(),
-                    } as any)
-                    .eq('campaign_id', effectiveCampaignId)
-                    .eq('lead_id', effectiveLeadId);
-                } catch (enrollErr) {
-                  console.warn('[RetellWebhookService] Failed to update campaign enrollment:', enrollErr);
-                }
-
-                // If lead is fully QUALIFIED in a campaign, trigger Resend follow-up email automation
-                if (qualificationEval.isQualified && (campaignRow?.email_followup_enabled || (campaignRow as any)?.emailFollowupEnabled)) {
-                  try {
-                    void scheduleFollowUp(callId, 'analyzed').catch((err) => {
-                      console.error('[RetellWebhookService] Error scheduling follow-up email:', err);
-                    });
-                  } catch (followUpErr) {
-                    console.error('[RetellWebhookService] scheduleFollowUp invocation failed:', followUpErr);
-                  }
-                }
-              }
-            }
           }
           break;
         }
@@ -525,5 +445,261 @@ export class RetellWebhookService {
         error: errorMsg,
       };
     }
+  }
+
+  /**
+   * Centralized handler to process post-call analysis, determine canonical outcome,
+   * persist to call_outcomes and call_transcripts, update lead CRM record,
+   * update campaign enrollment, and trigger follow-up email if qualified.
+   */
+  async processCallAnalysis(params: {
+    callId: string;
+    organizationId: string;
+    call: RetellCallResponse;
+    externalEventId?: string;
+    metadata?: Partial<RetellMetadata>;
+    rmCall?: any;
+  }): Promise<{
+    outcome: string;
+    isQualified: boolean;
+    summary: string;
+  }> {
+    const { callId, organizationId, call, metadata = {}, rmCall } = params;
+    const externalEventId = params.externalEventId || `retell_call_analyzed_${call.call_id}_${Date.now()}`;
+
+    // 1. Map Retell analysis to normalized RM fields
+    const analysis = RetellMapper.mapRetellAnalysisToRM(call.call_analysis);
+
+    // 2. Load campaign configuration & criteria if campaign is associated
+    let campaignCriteria = null;
+    let campaignRow = null;
+    const effectiveCampaignId =
+      metadata.campaignId ||
+      (metadata as any).campaign_id ||
+      (call as any).campaign_id ||
+      rmCall?.campaign_id ||
+      null;
+    const effectiveLeadId =
+      metadata.leadId ||
+      (metadata as any).lead_id ||
+      (call as any).lead_id ||
+      rmCall?.lead_id ||
+      null;
+
+    if (effectiveCampaignId) {
+      try {
+        campaignRow = await this.campaignsRepo.getById(effectiveCampaignId, organizationId);
+        if (campaignRow) {
+          const unpacked = unpackCampaignInstructions(campaignRow.email_instructions);
+          campaignCriteria = (campaignRow as any).qualificationCriteria || unpacked.qualificationCriteria || null;
+        }
+      } catch (campErr) {
+        console.warn('[RetellWebhookService] Campaign lookup failed for qualification:', campErr);
+      }
+    }
+
+    // 3. Run deterministic qualification evaluation against campaign criteria
+    const qualificationEval = evaluateCampaignPostCallQualification(
+      {
+        callOutcome: analysis.callOutcome,
+        leadStatus: analysis.leadStatus,
+        summary: analysis.summary,
+        sentiment: analysis.sentiment,
+        dncRequested: analysis.dncRequested,
+        inVoicemail: analysis.inVoicemail,
+        disconnectionReason: call.disconnection_reason,
+        decisionMakerIdentified: analysis.decisionMakerIdentified,
+        contactName: analysis.contactName,
+        companyName: analysis.companyName,
+        jobTitle: analysis.jobTitle,
+        emailAddress: analysis.emailAddress,
+        directPhoneNumber: analysis.directPhoneNumber,
+        interestLevel: analysis.interestLevel,
+        materialInterest: analysis.materialInterest,
+        estimatedVolume: analysis.estimatedVolume,
+        materialGrade: analysis.materialGrade,
+        purchaseIntent: analysis.purchaseIntent,
+        commercialRequirements: analysis.commercialRequirements,
+        customerObjections: analysis.customerObjections,
+        nextSteps: analysis.nextSteps,
+        callbackRequested: analysis.callbackRequested,
+        callbackTime: analysis.callbackTime,
+        materialContext: analysis.materialContext,
+        customData: analysis.qualificationData,
+      },
+      campaignCriteria
+    );
+
+    // 4. Persist call outcome to public.call_outcomes
+    await this.callsRepo.recordOutcome({
+      call_session_id: callId,
+      organization_id: organizationId,
+      disposition: qualificationEval.outcome,
+      notes: qualificationEval.summary || analysis.summary || '',
+    });
+
+    // 5. Ingest transcript turns into call_transcripts if not already ingested
+    if (call.transcript_object && call.transcript_object.length > 0) {
+      const transcripts = RetellMapper.mapRetellTranscriptToRM(call.transcript_object, callId);
+      for (const t of transcripts) {
+        await this.callsRepo.saveTranscriptSegment({
+          organization_id: organizationId,
+          call_session_id: callId,
+          body: `${t.speaker}: ${t.text}`,
+        });
+      }
+    } else if (call.transcript) {
+      await this.callsRepo.saveTranscriptSegment({
+        organization_id: organizationId,
+        call_session_id: callId,
+        body: call.transcript,
+      });
+    }
+
+    // 6. Log structured analysis event to audit_logs
+    await this.callsRepo.logEvent({
+      organization_id: organizationId,
+      call_id: callId,
+      event_type: retellEventToNormalizedType('call_analyzed'),
+      provider_event_id: externalEventId,
+      payload: {
+        summary: analysis.summary,
+        call_outcome: qualificationEval.outcome,
+        sentiment: analysis.sentiment,
+        sentiment_score: analysis.sentimentScore,
+        is_successful: analysis.isSuccessful,
+        in_voicemail: analysis.inVoicemail,
+        qualification: {
+          outcome: qualificationEval.outcome,
+          isQualified: qualificationEval.isQualified,
+          decisionMakerInvolved: qualificationEval.decisionMakerInvolved,
+          materialInterest: qualificationEval.materialInterest,
+          estimatedVolume: qualificationEval.estimatedVolume,
+          materialGrade: qualificationEval.materialGrade,
+          purchaseIntent: qualificationEval.purchaseIntent,
+          commercialRequirements: qualificationEval.commercialRequirements,
+          customerObjections: qualificationEval.customerObjections,
+          nextSteps: qualificationEval.nextSteps,
+          callbackRequested: qualificationEval.callbackRequested,
+          callbackTime: qualificationEval.callbackTime,
+          disqualificationReasons: qualificationEval.disqualificationReasons,
+          evidence: qualificationEval.evidence,
+          contactName: analysis.contactName,
+          companyName: analysis.companyName,
+          jobTitle: analysis.jobTitle,
+          emailAddress: analysis.emailAddress,
+          directPhoneNumber: analysis.directPhoneNumber,
+          customData: analysis.qualificationData,
+        },
+      } as unknown as Json,
+    });
+
+    // 7. Persist qualification results directly to lead record
+    if (effectiveLeadId) {
+      const leadUpdate: Record<string, any> = {
+        status: qualificationEval.recommendedDbStatus,
+        notes: `[Call ${qualificationEval.outcome}] ${qualificationEval.summary}`,
+      };
+
+      if (analysis.contactName) leadUpdate.name = analysis.contactName;
+      if (analysis.companyName) leadUpdate.company = analysis.companyName;
+      if (analysis.jobTitle) leadUpdate.title = analysis.jobTitle;
+      if (analysis.emailAddress) leadUpdate.email = analysis.emailAddress;
+      if (analysis.directPhoneNumber) leadUpdate.phone = analysis.directPhoneNumber;
+      if (analysis.materialInterest) (leadUpdate as any).product = analysis.materialInterest;
+
+      if (qualificationEval.outcome === 'DO_NOT_CALL') {
+        await this.leadsRepo.markDnc(effectiveLeadId, organizationId, 'Prospect requested DNC during AI call');
+      } else {
+        await this.leadsRepo.update(effectiveLeadId, organizationId, leadUpdate);
+      }
+
+      // 8. Update campaign enrollment state & outcome
+      if (effectiveCampaignId) {
+        try {
+          const enrollmentOutcome = qualificationEval.outcome.toLowerCase();
+          const enrollmentState =
+            qualificationEval.outcome === 'CALLBACK_REQUESTED' || qualificationEval.outcome === 'NO_ANSWER'
+              ? 'pending'
+              : 'completed';
+
+          await this.supabase
+            .from('campaign_enrollments')
+            .update({
+              outcome: enrollmentOutcome,
+              state: enrollmentState,
+              last_call_id: callId,
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq('campaign_id', effectiveCampaignId)
+            .eq('lead_id', effectiveLeadId);
+        } catch (enrollErr) {
+          console.warn('[RetellWebhookService] Failed to update campaign enrollment:', enrollErr);
+        }
+
+        // 9. If lead is fully QUALIFIED in a campaign, trigger Resend follow-up email automation
+        if (qualificationEval.isQualified && (campaignRow?.email_followup_enabled || (campaignRow as any)?.emailFollowupEnabled)) {
+          try {
+            void scheduleFollowUp(callId, 'analyzed').catch((err) => {
+              console.error('[RetellWebhookService] Error scheduling follow-up email:', err);
+            });
+          } catch (followUpErr) {
+            console.error('[RetellWebhookService] scheduleFollowUp invocation failed:', followUpErr);
+          }
+        }
+      }
+    }
+
+    return {
+      outcome: qualificationEval.outcome,
+      isQualified: qualificationEval.isQualified,
+      summary: qualificationEval.summary,
+    };
+  }
+
+  /**
+   * Reconciles a call's analysis directly with Retell API if webhook was missed or delayed.
+   */
+  async reconcileCallAnalysis(retellCallId: string, orgId?: string): Promise<{
+    reconciled: boolean;
+    outcome?: string;
+    message: string;
+  }> {
+    const callRecord = await this.callsRepo.getByRetellCallId(retellCallId);
+    if (!callRecord) {
+      return { reconciled: false, message: `No call record found for Retell call ID ${retellCallId}` };
+    }
+
+    const organizationId = orgId || callRecord.organization_id;
+    const client = new RetellClient();
+    let retellCall: RetellCallResponse;
+    try {
+      retellCall = await client.getCall(retellCallId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Retell API call failed';
+      return { reconciled: false, message: `Failed to fetch call from Retell: ${msg}` };
+    }
+
+    if (!retellCall) {
+      return { reconciled: false, message: 'Call not found on Retell provider' };
+    }
+
+    if (!retellCall.call_analysis) {
+      return { reconciled: false, message: 'Call has not completed analysis on Retell provider yet' };
+    }
+
+    const result = await this.processCallAnalysis({
+      callId: callRecord.id,
+      organizationId,
+      call: retellCall,
+      metadata: (retellCall.metadata || {}) as Partial<RetellMetadata>,
+      rmCall: callRecord,
+    });
+
+    return {
+      reconciled: true,
+      outcome: result.outcome,
+      message: `Successfully reconciled call analysis. Outcome: ${result.outcome}`,
+    };
   }
 }
