@@ -21,52 +21,52 @@
   --chart-track: #e4ebe7;
   --danger: var(--error);
 
-  /* LIGHT MODE — porcelain canvas, premium pine */
-  --background: #f4f6f4;
+  /* LIGHT MODE — porcelain canvas, refined pine #2F5D50, sage #7EAEA0 */
+  --background: #f8faf9;
   --surface: #ffffff;
-  --surface-secondary: #eef2ef;
-  --surface-elevated: #f8faf8;
+  --surface-secondary: #f1f5f3;
+  --surface-elevated: #ffffff;
 
-  --sidebar: #f3f6f4;
-  --sidebar-hover: rgba(47, 93, 80, 0.07);
-  --sidebar-text: #1c2824;
-  --sidebar-border: #d5ded8;
-  --sidebar-active: #ddeae4;
+  --sidebar: #ffffff;
+  --sidebar-hover: rgba(47, 93, 80, 0.05);
+  --sidebar-text: #19211e;
+  --sidebar-border: #e5e9e6;
+  --sidebar-active: #eaf1ed;
 
   --primary: #2f5d50;
-  --primary-hover: #23463c;
-  --primary-foreground: #f7fbf9;
+  --primary-hover: #244b40;
+  --primary-foreground: #ffffff;
 
-  --secondary: #3e6b5b;
-  --secondary-hover: #2c4f44;
-  --secondary-foreground: #f7fbf9;
+  --secondary: #7eaea0;
+  --secondary-hover: #6a9c8e;
+  --secondary-foreground: #19211e;
 
-  --accent: #3e6b5b;
-  --accent-surface: #ddeae4;
+  --accent: #2f5d50;
+  --accent-surface: #eaf1ed;
 
-  --text-primary: #1f2421;
-  --text-secondary: #5d6460;
-  --text-muted: #858b86;
+  --text-primary: #19211e;
+  --text-secondary: #58635f;
+  --text-muted: #8c9792;
 
-  --border: #d0dad4;
-  --border-strong: #b7c6be;
+  --border: #e2e7e4;
+  --border-strong: #cbd4cf;
 
   --success: #2f5d50;
-  --success-surface: #ddeae4;
+  --success-surface: #eaf1ed;
 
-  --warning: #9a783f;
-  --warning-surface: #fbf4e8;
+  --warning: #b47a2a;
+  --warning-surface: #fef8ee;
 
-  --error: #a64b46;
-  --error-surface: #f9eceb;
+  --error: #b9423c;
+  --error-surface: #fdf2f1;
 
-  --info: #526a78;
-  --info-surface: #eef3f6;
+  --info: #3b6e82;
+  --info-surface: #f0f7fa;
 
   --card-bg: #ffffff;
-  --card-border: #c9d5ce;
+  --card-border: #e2e7e4;
   --input-bg: #ffffff;
-  --input-border: #c9d5ce;
+  --input-border: #d7deda;
 
   --shadow-xs: 0 1px 2px rgba(31, 36, 33, 0.04);
   --shadow-sm: 0 1px 3px rgba(31, 36, 33, 0.06), 0 1px 2px rgba(31, 36, 33, 0.04);

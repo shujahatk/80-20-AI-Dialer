@@ -931,13 +931,13 @@ export class CampaignsService {
     }
 
     try {
-      await this.supabase.from('audit_logs').insert({
+      await (this.supabase.from('audit_logs') as any).insert({
         organization_id: organizationId,
-        actor_user_id: actorId ?? null,
+        actor_id: actorId ?? null,
         action,
-        entity_type: entityType,
+        entity: entityType,
         entity_id: entityId,
-        metadata: metadata as Json,
+        metadata: (metadata || {}) as Json,
       });
     } catch (err) {
       console.warn('Audit logging notice:', err);

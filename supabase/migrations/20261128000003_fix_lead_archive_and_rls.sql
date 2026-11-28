@@ -11,8 +11,8 @@ USING (
   ((assigned_to = (SELECT auth.uid() AS uid)) AND private.has_permission(organization_id, 'leads.read_assigned'::text))
 );
 
--- 2. Repair guard_lead_update trigger to allow service_role and background webhooks to update leads safely
-CREATE OR REPLACE FUNCTION public.guard_lead_update()
+-- 2. Repair guard_lead_update trigger in private and public schemas to allow service_role and background webhooks to update leads safely
+CREATE OR REPLACE FUNCTION private.guard_lead_update()
 RETURNS trigger AS $$
 BEGIN
   IF new.organization_id IS DISTINCT FROM old.organization_id THEN
@@ -47,7 +47,14 @@ BEGIN
 
   RETURN new;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.guard_lead_update()
+RETURNS trigger AS $$
+BEGIN
+  RETURN private.guard_lead_update();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 3. Atomic lead archive RPC function
 CREATE OR REPLACE FUNCTION public.archive_lead_records(

@@ -67,6 +67,7 @@ export function sanitizeError(error: unknown): { message: string; code: string; 
     if (
       msg.includes('live call') ||
       msg.includes('Cannot delete') ||
+      msg.includes('Not allowed to update') ||
       msg.includes('not found') ||
       msg.includes('insufficient') ||
       msg.includes('Permission') ||

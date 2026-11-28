@@ -27,7 +27,7 @@ function ThemeConsumerBridge({ children }: { children: React.ReactNode }) {
   const { theme, setTheme, resolvedTheme } = useNextTheme();
   const mounted = useThemeMounted();
 
-  const effectiveTheme: Theme = mounted ? ((theme as Theme) || 'system') : 'system';
+  const effectiveTheme: Theme = mounted ? ((theme as Theme) || 'light') : 'light';
   const effectiveResolved: ResolvedTheme = mounted && resolvedTheme === 'dark' ? 'dark' : 'light';
 
   const toggleTheme = () => {
@@ -53,8 +53,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="system"
-      enableSystem
+      defaultTheme="light"
+      enableSystem={false}
       storageKey="rm_theme"
       disableTransitionOnChange
     >
