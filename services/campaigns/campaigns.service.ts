@@ -66,8 +66,6 @@ const VALID_TRANSITIONS: Record<CampaignStatusType, CampaignStatusType[]> = {
 };
 
 function toDbCampaignStatus(status: CampaignStatusType): string {
-  if (status === 'running' || status === 'scheduled') return 'ready';
-  if (status === 'completed' || status === 'cancelled') return 'archived';
   return status;
 }
 
@@ -168,8 +166,15 @@ export class CampaignsService {
       timezone: tz,
       maxAttempts,
       retryDelayMinutes: retryDelay,
-      startDate: row.start_date ?? null,
+      startDate: row.start_date ?? (row as any).scheduled_at ?? null,
       endDate: row.end_date ?? null,
+      scheduledAt: (row as any).scheduled_at ?? row.start_date ?? null,
+      startedAt: row.started_at ?? (row as any).startedAt ?? null,
+      completedAt: row.completed_at ?? (row as any).completedAt ?? null,
+      desiredOutcome:
+        (row as any).desiredOutcome ??
+        unpackCampaignInstructions(row.email_instructions).desiredOutcome ??
+        null,
       detailedMetrics: metrics,
       emailFollowupEnabled: Boolean(row.email_followup_enabled),
       emailSubject: unpackCampaignInstructions(row.email_instructions).emailSubject ?? null,
@@ -285,7 +290,9 @@ export class CampaignsService {
       email_lawful_basis: validated.emailLawfulBasis || 'legitimate_interest_documented',
       email_lawful_basis_note: validated.emailLawfulBasisNote || 'B2B commercial discussion',
       email_instructions: packCampaignInstructions(validated as any),
-    };
+      ...(validated.scheduledAt ? { scheduledAt: validated.scheduledAt } : {}),
+      ...(validated.desiredOutcome ? { desiredOutcome: validated.desiredOutcome } : {}),
+    } as CampaignInsert;
 
     const row = await this.repo.create(campaignInsert);
 
@@ -408,6 +415,21 @@ export class CampaignsService {
     return this.transitionState(id, 'running', organizationId, actorId);
   }
 
+  async scheduleCampaign(
+    id: string,
+    scheduledAt: string,
+    organizationId?: string,
+    actorId?: string
+  ): Promise<Campaign> {
+    const orgId = organizationId ?? this.defaultOrgId;
+    await this.repo.update(id, orgId, {
+      scheduledAt,
+      startDate: scheduledAt,
+      ...(actorId ? { created_by: actorId } : {}),
+    } as any);
+    return this.transitionState(id, 'scheduled', orgId, actorId);
+  }
+
   async pauseCampaign(id: string, organizationId?: string, actorId?: string): Promise<Campaign> {
     return this.transitionState(id, 'paused', organizationId, actorId);
   }
@@ -421,7 +443,7 @@ export class CampaignsService {
   }
 
   async cancelCampaign(id: string, organizationId?: string, actorId?: string): Promise<Campaign> {
-    return this.transitionState(id, 'archived', organizationId, actorId);
+    return this.transitionState(id, 'cancelled', organizationId, actorId);
   }
 
   async archiveCampaign(id: string, organizationId?: string, actorId?: string): Promise<Campaign> {

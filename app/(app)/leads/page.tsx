@@ -240,6 +240,29 @@ function LeadsMainTable({
     }
   };
 
+  const handleSingleArchive = async (lead: Lead) => {
+    if (
+      !confirm(
+        `Archive lead "${lead.name}" (${lead.company})? This lead will be removed from active campaign queues while preserving historical call and email records.`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await authenticatedFetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Archived "${lead.name}" and removed from active queues.`);
+        fetchLeads();
+      } else {
+        showToast(data.error || 'Could not archive lead.');
+      }
+    } catch {
+      showToast('Failed to archive lead.');
+    }
+  };
+
   const handleBulkArchive = async () => {
     if (selectedIds.length === 0) return;
     if (!confirm(`Archive ${selectedIds.length} selected leads? They will be safely hidden from active queues.`)) return;
@@ -375,6 +398,7 @@ function LeadsMainTable({
             onSelectAll={handleSelectAll}
             onInstantDial={handleInstantDial}
             onViewLead={(id) => setSelectedLeadIdForDrawer(id)}
+            onArchiveLead={handleSingleArchive}
             currentPage={currentPage}
             totalPages={totalPages}
             totalCount={totalCount}

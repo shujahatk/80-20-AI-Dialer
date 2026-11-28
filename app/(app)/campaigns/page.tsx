@@ -46,6 +46,7 @@ function CampaignsMainView({ statusFilter }: { statusFilter?: string | null }) {
   const loadCampaigns = useCallback(async () => {
     try {
       setIsLoading(true);
+      await fetch('/api/campaigns/cron', { method: 'POST' }).catch(() => null);
       const res = await fetch('/api/campaigns?limit=50');
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {

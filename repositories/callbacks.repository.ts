@@ -17,6 +17,14 @@ export interface CallbackFilterOptions {
 export class CallbacksRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) {}
 
+  private enrichCallbackRow(row: any): CallbackRow {
+    if (!row) return row;
+    const scheduled = row.scheduled_at ?? row.scheduled_for ?? new Date().toISOString();
+    row.scheduled_at = scheduled;
+    row.scheduled_for = scheduled;
+    return row as CallbackRow;
+  }
+
   async list(
     orgId: string,
     options: CallbackFilterOptions = {}
@@ -39,7 +47,7 @@ export class CallbacksRepository {
       query = query.eq('campaign_id', options.campaignId);
     }
 
-    query = query.order('scheduled_for', { ascending: true });
+    query = query.order('scheduled_at' as any, { ascending: true });
 
     const limit = options.limit ?? 25;
     const offset = options.offset ?? 0;
@@ -49,7 +57,7 @@ export class CallbacksRepository {
     if (error) throw error;
 
     return {
-      callbacks: (data as CallbackRow[]) ?? [],
+      callbacks: ((data as any[]) ?? []).map((r) => this.enrichCallbackRow(r)),
       totalCount: count ?? 0,
     };
   }
@@ -61,17 +69,22 @@ export class CallbacksRepository {
     }
     const { data, error } = await query.maybeSingle();
     if (error) throw error;
-    return (data as CallbackRow | null) ?? null;
+    return data ? this.enrichCallbackRow(data) : null;
   }
 
   async create(input: CallbackInsert): Promise<CallbackRow> {
-    const payload = {
-      ...input,
-      scheduled_for: input.scheduled_for || (input as any).scheduled_at || new Date().toISOString(),
+    const scheduledTime = (input as any).scheduled_at || input.scheduled_for || new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+    const payload: Record<string, unknown> = {
+      organization_id: input.organization_id,
+      lead_id: input.lead_id,
+      campaign_id: input.campaign_id ?? null,
+      call_session_id: (input as any).call_session_id ?? input.call_id ?? null,
+      scheduled_at: scheduledTime,
       timezone: input.timezone || 'UTC',
       status: input.status || 'pending',
       priority: input.priority || 'medium',
       notes: input.notes || '',
+      assigned_to: (input as any).assigned_to ?? (input as any).assigned_user_id ?? null,
     };
 
     const { data, error } = await this.supabase
@@ -81,7 +94,7 @@ export class CallbacksRepository {
       .single();
 
     if (error) throw error;
-    return data as CallbackRow;
+    return this.enrichCallbackRow(data);
   }
 
   async updateStatus(
@@ -106,7 +119,7 @@ export class CallbacksRepository {
       .single();
 
     if (error) throw error;
-    return data as CallbackRow;
+    return this.enrichCallbackRow(data);
   }
 
   async countPending(orgId: string): Promise<number> {

@@ -12,7 +12,9 @@ import type { RetellWebhookEvent, RetellMetadata, RetellCallResponse } from './t
 import { CallsRepository } from '@/repositories/calls.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
 import { CampaignsRepository, unpackCampaignInstructions } from '@/repositories/campaigns.repository';
+import { CallbacksRepository } from '@/repositories/callbacks.repository';
 import { evaluateCampaignPostCallQualification } from '@/services/campaigns/campaign-qualification.service';
+import { claudeCrmIntelligenceService } from '@/services/ai/claude-crm-intelligence.service';
 import { scheduleFollowUp } from '@/services/email/run-follow-up';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json, LeadStatusDb } from '@/lib/supabase/types';
@@ -30,11 +32,13 @@ export class RetellWebhookService {
   private callsRepo: CallsRepository;
   private leadsRepo: LeadsRepository;
   private campaignsRepo: CampaignsRepository;
+  private callbacksRepo: CallbacksRepository;
 
   constructor(private readonly supabase: SupabaseClient<Database>) {
     this.callsRepo = new CallsRepository(supabase);
     this.leadsRepo = new LeadsRepository(supabase);
     this.campaignsRepo = new CampaignsRepository(supabase);
+    this.callbacksRepo = new CallbacksRepository(supabase);
   }
 
   /**
@@ -302,16 +306,36 @@ export class RetellWebhookService {
             }
 
             // Sync campaign lead progress if part of an outbound campaign
-            if (metadata.campaignLeadId && metadata.campaignId) {
+            const effectiveCampaignIdForEnded = metadata.campaignId || rmCall?.campaign_id || null;
+            const effectiveLeadIdForEnded = metadata.leadId || rmCall?.lead_id || null;
+            if ((metadata.campaignLeadId || effectiveLeadIdForEnded) && effectiveCampaignIdForEnded && !call.call_analysis) {
               const reason = (call.disconnection_reason || '').toLowerCase();
-              const isVoicemail = reason.includes('voicemail') || reason.includes('machine');
-              const isNoAnswer = reason.includes('no_answer') || reason.includes('busy');
+              const isNoAnswer = reason.includes('no_answer');
+              const isBusy = reason.includes('busy');
 
-              if (isVoicemail || isNoAnswer) {
-                const nextAttempt = new Date(Date.now() + 3600000 * 2).toISOString();
-                await this.campaignsRepo.updateAttempt(metadata.campaignLeadId, isVoicemail ? 'voicemail' : 'no_answer', nextAttempt);
+              if (isNoAnswer || isBusy) {
+                const retryOutcome = isBusy ? 'busy' : 'no_answer';
+                await this.campaignsRepo.recordAttemptAndScheduleRetry({
+                  campaignId: effectiveCampaignIdForEnded,
+                  leadId: effectiveLeadIdForEnded,
+                  campaignLeadId: metadata.campaignLeadId,
+                  callId,
+                  outcome: retryOutcome,
+                  qualificationOutcome: isBusy ? 'BUSY' : 'NO_ANSWER',
+                });
               } else {
-                await this.campaignsRepo.completeLead(metadata.campaignLeadId, 'completed');
+                const finalDisposition = reason.includes('voicemail') || reason.includes('machine')
+                  ? 'voicemail'
+                  : reason.includes('fail')
+                  ? 'failed'
+                  : 'completed';
+                await this.campaignsRepo.completeLeadByContext({
+                  campaignId: effectiveCampaignIdForEnded,
+                  leadId: effectiveLeadIdForEnded,
+                  campaignLeadId: metadata.campaignLeadId,
+                  callId,
+                  outcome: finalDisposition,
+                });
               }
             }
           }
@@ -455,9 +479,10 @@ export class RetellWebhookService {
   }
 
   /**
-   * Centralized handler to process post-call analysis, determine canonical outcome,
-   * persist to call_outcomes and call_transcripts, update lead CRM record,
-   * update campaign enrollment, and trigger follow-up email if qualified.
+   * Centralized handler to process post-call analysis, invoke Claude CRM Intelligence Brain,
+   * determine canonical outcome, persist to call_outcomes and call_transcripts,
+   * update lead CRM record, create callback if requested, update campaign retry queue,
+   * and trigger personalized Resend email for QUALIFIED leads.
    */
   async processCallAnalysis(params: {
     callId: string;
@@ -477,9 +502,10 @@ export class RetellWebhookService {
     // 1. Map Retell analysis to normalized RM fields
     const analysis = RetellMapper.mapRetellAnalysisToRM(call.call_analysis);
 
-    // 2. Load campaign configuration & criteria if campaign is associated
-    let campaignCriteria = null;
-    let campaignRow = null;
+    // 2. Load campaign configuration & lead context if associated
+    let campaignCriteria: Record<string, any> | null = null;
+    let campaignRow: any = null;
+    let leadRow: any = null;
     const effectiveCampaignId =
       metadata.campaignId ||
       (metadata as any).campaign_id ||
@@ -505,47 +531,121 @@ export class RetellWebhookService {
       }
     }
 
-    // 3. Run deterministic qualification evaluation against campaign criteria
+    if (effectiveLeadId) {
+      try {
+        leadRow = await this.leadsRepo.getById(effectiveLeadId, organizationId);
+      } catch {
+        // Optional lead lookup
+      }
+    }
+
+    // Build transcript string for Claude analysis
+    let transcriptText = call.transcript || '';
+    if (!transcriptText && call.transcript_object && call.transcript_object.length > 0) {
+      transcriptText = call.transcript_object
+        .map((u) => `${u.role === 'agent' ? 'Agent' : 'Prospect'}: ${u.content}`)
+        .join('\n');
+    }
+
+    const durationSec = call.duration_ms
+      ? Math.round(call.duration_ms / 1000)
+      : (rmCall?.duration_seconds ?? 0);
+
+    // 3. Run Claude CRM Intelligence Brain (with deterministic fallback)
+    const claudeResult = await claudeCrmIntelligenceService.analyzeCompletedCall({
+      callId,
+      retellCallId: call.call_id,
+      transcriptText,
+      retellSummary: analysis.summary,
+      retellCustomData: analysis.qualificationData,
+      retellCallOutcome: analysis.callOutcome,
+      retellLeadStatus: analysis.leadStatus,
+      retellSentiment: analysis.sentiment,
+      retellInVoicemail: analysis.inVoicemail,
+      disconnectionReason: call.disconnection_reason || null,
+      durationSeconds: durationSec,
+      callStatus: call.call_status,
+      leadContext: leadRow
+        ? {
+            id: leadRow.id,
+            name: leadRow.name || leadRow.full_name || null,
+            company: leadRow.company || leadRow.company_name || null,
+            title: leadRow.title || leadRow.job_title || null,
+            email: leadRow.email || null,
+            phone: leadRow.phone || null,
+            city: leadRow.city || null,
+            product: leadRow.product || null,
+          }
+        : undefined,
+      campaignContext: campaignRow
+        ? {
+            id: campaignRow.id,
+            name: campaignRow.name,
+            desiredOutcome:
+              (campaignRow as any).desiredOutcome ||
+              (campaignCriteria as any)?.desiredOutcome ||
+              null,
+            qualificationCriteria: campaignCriteria,
+            requiredCommercialInfo:
+              (campaignRow as any).requiredCommercialInfo ||
+              unpackCampaignInstructions(campaignRow.email_instructions).requiredCommercialInfo ||
+              null,
+          }
+        : undefined,
+    });
+
+    const claudeAnalysis = claudeResult.claudeAnalysis;
+    const usedClaude = claudeAnalysis.analysisSource === 'claude_live';
+
+    // 4. Run deterministic qualification evaluation enriched with Claude analysis
     const qualificationEval = evaluateCampaignPostCallQualification(
       {
-        callOutcome: analysis.callOutcome,
+        callOutcome: usedClaude ? claudeAnalysis.qualificationStatus : (analysis.callOutcome || claudeAnalysis.qualificationStatus),
         leadStatus: analysis.leadStatus,
-        summary: analysis.summary,
+        summary: claudeAnalysis.callSummary || analysis.summary,
         sentiment: analysis.sentiment,
-        dncRequested: analysis.dncRequested,
-        inVoicemail: analysis.inVoicemail,
+        dncRequested: analysis.dncRequested || claudeAnalysis.dncRequested || claudeAnalysis.qualificationStatus === 'DO_NOT_CALL',
+        inVoicemail: analysis.inVoicemail || claudeAnalysis.technicalStatus === 'VOICEMAIL',
         disconnectionReason: call.disconnection_reason,
-        decisionMakerIdentified: analysis.decisionMakerIdentified,
-        contactName: analysis.contactName,
-        companyName: analysis.companyName,
-        jobTitle: analysis.jobTitle,
-        emailAddress: analysis.emailAddress,
-        directPhoneNumber: analysis.directPhoneNumber,
-        interestLevel: analysis.interestLevel,
-        materialInterest: analysis.materialInterest,
-        estimatedVolume: analysis.estimatedVolume,
-        materialGrade: analysis.materialGrade,
-        purchaseIntent: analysis.purchaseIntent,
-        commercialRequirements: analysis.commercialRequirements,
-        customerObjections: analysis.customerObjections,
-        nextSteps: analysis.nextSteps,
-        callbackRequested: analysis.callbackRequested,
-        callbackTime: analysis.callbackTime,
+        decisionMakerIdentified: claudeAnalysis.decisionMakerIdentified || analysis.decisionMakerIdentified,
+        contactName: claudeAnalysis.contactName || analysis.contactName,
+        companyName: claudeAnalysis.companyName || analysis.companyName,
+        jobTitle: claudeAnalysis.jobTitle || analysis.jobTitle,
+        emailAddress: claudeAnalysis.email || analysis.emailAddress,
+        directPhoneNumber: claudeAnalysis.phoneNumber || analysis.directPhoneNumber,
+        interestLevel: claudeAnalysis.interestLevel !== 'unknown' ? claudeAnalysis.interestLevel : analysis.interestLevel,
+        materialInterest: claudeAnalysis.materialOrProduct || analysis.materialInterest,
+        estimatedVolume: claudeAnalysis.estimatedVolume || analysis.estimatedVolume,
+        materialGrade: claudeAnalysis.materialGrade || analysis.materialGrade,
+        purchaseIntent: claudeAnalysis.timeline || analysis.purchaseIntent,
+        commercialRequirements:
+          claudeAnalysis.requirements.length > 0
+            ? claudeAnalysis.requirements.join('; ')
+            : analysis.commercialRequirements,
+        customerObjections:
+          claudeAnalysis.objections.length > 0
+            ? claudeAnalysis.objections.join('; ')
+            : analysis.customerObjections,
+        nextSteps: claudeAnalysis.nextSteps || analysis.nextSteps,
+        callbackRequested: claudeAnalysis.callbackRequested || analysis.callbackRequested,
+        callbackTime: claudeAnalysis.callbackDateTime || analysis.callbackTime,
         materialContext: analysis.materialContext,
         customData: analysis.qualificationData,
       },
       campaignCriteria
     );
 
-    // 4. Persist call outcome to public.call_outcomes
+    const finalSummary = claudeAnalysis.callSummary || qualificationEval.summary || analysis.summary || '';
+
+    // 5. Persist call outcome to public.call_outcomes
     await this.callsRepo.recordOutcome({
       call_session_id: callId,
       organization_id: organizationId,
       disposition: qualificationEval.outcome,
-      notes: qualificationEval.summary || analysis.summary || '',
+      notes: finalSummary,
     });
 
-    // 5. Ingest transcript turns into call_transcripts if not already ingested
+    // 6. Ingest transcript turns into call_transcripts if not already ingested
     if (call.transcript_object && call.transcript_object.length > 0) {
       const transcripts = RetellMapper.mapRetellTranscriptToRM(call.transcript_object, callId);
       for (const t of transcripts) {
@@ -563,57 +663,77 @@ export class RetellWebhookService {
       });
     }
 
-    // 6. Log structured analysis event to audit_logs
+    // 7. Log structured analysis event (including Claude CRM Intelligence Brain output) to audit_logs
     await this.callsRepo.logEvent({
       organization_id: organizationId,
       call_id: callId,
       event_type: retellEventToNormalizedType('call_analyzed'),
       provider_event_id: externalEventId,
       payload: {
-        summary: analysis.summary,
+        summary: finalSummary,
         call_outcome: qualificationEval.outcome,
         sentiment: analysis.sentiment,
         sentiment_score: analysis.sentimentScore,
-        is_successful: analysis.isSuccessful,
+        is_successful: qualificationEval.isQualified,
         in_voicemail: analysis.inVoicemail,
+        claude_model: claudeAnalysis.modelUsed,
+        used_claude: usedClaude,
+        analysis_source: claudeAnalysis.analysisSource,
         qualification: {
           outcome: qualificationEval.outcome,
           isQualified: qualificationEval.isQualified,
           decisionMakerInvolved: qualificationEval.decisionMakerInvolved,
+          decisionMakerRole: claudeAnalysis.jobTitle || analysis.jobTitle,
           materialInterest: qualificationEval.materialInterest,
           estimatedVolume: qualificationEval.estimatedVolume,
           materialGrade: qualificationEval.materialGrade,
+          frequency: claudeAnalysis.frequency,
+          deliveryOrPickupLocation: claudeAnalysis.location,
+          commercialTimeline: claudeAnalysis.timeline,
           purchaseIntent: qualificationEval.purchaseIntent,
           commercialRequirements: qualificationEval.commercialRequirements,
           customerObjections: qualificationEval.customerObjections,
           nextSteps: qualificationEval.nextSteps,
           callbackRequested: qualificationEval.callbackRequested,
           callbackTime: qualificationEval.callbackTime,
+          desiredOutcomeMet: claudeAnalysis.desiredOutcomeAchieved,
+          qualificationReason: claudeAnalysis.qualificationReasoning,
           disqualificationReasons: qualificationEval.disqualificationReasons,
           evidence: qualificationEval.evidence,
-          contactName: analysis.contactName,
-          companyName: analysis.companyName,
-          jobTitle: analysis.jobTitle,
-          emailAddress: analysis.emailAddress,
-          directPhoneNumber: analysis.directPhoneNumber,
+          evidenceQuotes: claudeAnalysis.evidenceQuotes,
+          contactName: claudeAnalysis.contactName || analysis.contactName,
+          companyName: claudeAnalysis.companyName || analysis.companyName,
+          jobTitle: claudeAnalysis.jobTitle || analysis.jobTitle,
+          emailAddress: claudeAnalysis.email || analysis.emailAddress,
+          directPhoneNumber: claudeAnalysis.phoneNumber || analysis.directPhoneNumber,
           customData: analysis.qualificationData,
         },
       } as unknown as Json,
     });
 
-    // 7. Persist qualification results directly to lead record
+    // 8. Persist qualification results & extracted fields directly to lead record
     if (effectiveLeadId) {
       const leadUpdate: Record<string, any> = {
         status: qualificationEval.recommendedDbStatus,
-        notes: `[Call ${qualificationEval.outcome}] ${qualificationEval.summary}`,
+        notes: `[Call ${qualificationEval.outcome}] ${finalSummary}`,
       };
 
-      if (analysis.contactName) leadUpdate.name = analysis.contactName;
-      if (analysis.companyName) leadUpdate.company = analysis.companyName;
-      if (analysis.jobTitle) leadUpdate.title = analysis.jobTitle;
-      if (analysis.emailAddress) leadUpdate.email = analysis.emailAddress;
-      if (analysis.directPhoneNumber) leadUpdate.phone = analysis.directPhoneNumber;
-      if (analysis.materialInterest) (leadUpdate as any).product = analysis.materialInterest;
+      const extractedName = claudeAnalysis.contactName || analysis.contactName;
+      const extractedCompany = claudeAnalysis.companyName || analysis.companyName;
+      const extractedTitle = claudeAnalysis.jobTitle || analysis.jobTitle;
+      const extractedEmail = claudeAnalysis.email || analysis.emailAddress;
+      const extractedPhone = claudeAnalysis.phoneNumber || analysis.directPhoneNumber;
+      const extractedMaterial = claudeAnalysis.materialOrProduct || analysis.materialInterest;
+      const extractedLocation = claudeAnalysis.location;
+
+      if (extractedName) leadUpdate.name = extractedName;
+      if (extractedCompany) leadUpdate.company = extractedCompany;
+      if (extractedTitle) leadUpdate.title = extractedTitle;
+      if (extractedEmail) leadUpdate.email = extractedEmail;
+      if (extractedPhone) leadUpdate.phone = extractedPhone;
+      if (extractedMaterial) leadUpdate.product = extractedMaterial;
+      if (extractedLocation) leadUpdate.city = extractedLocation;
+      if (qualificationEval.nextSteps) leadUpdate.next_action = qualificationEval.nextSteps;
 
       if (qualificationEval.outcome === 'DO_NOT_CALL') {
         await this.leadsRepo.markDnc(effectiveLeadId, organizationId, 'Prospect requested DNC during AI call');
@@ -621,35 +741,75 @@ export class RetellWebhookService {
         await this.leadsRepo.update(effectiveLeadId, organizationId, leadUpdate);
       }
 
-      // 8. Update campaign enrollment state & outcome
-      if (effectiveCampaignId) {
+      // 8b. Automatic Callback Creation (Part 10)
+      if (
+        qualificationEval.outcome === 'CALLBACK_REQUESTED' ||
+        qualificationEval.callbackRequested ||
+        claudeAnalysis.callbackRequested
+      ) {
         try {
-          const enrollmentOutcome = qualificationEval.outcome.toLowerCase();
-          const enrollmentState =
-            qualificationEval.outcome === 'CALLBACK_REQUESTED' || qualificationEval.outcome === 'NO_ANSWER'
-              ? 'pending'
-              : 'completed';
+          const rawTime = qualificationEval.callbackTime || claudeAnalysis.callbackDateTime;
+          let scheduledIso = new Date(Date.now() + 24 * 3600 * 1000).toISOString();
+          if (rawTime) {
+            const parsedDate = Date.parse(rawTime);
+            if (!Number.isNaN(parsedDate) && parsedDate > Date.now() - 3600 * 1000) {
+              scheduledIso = new Date(parsedDate).toISOString();
+            }
+          }
+          await this.callbacksRepo.create({
+            organization_id: organizationId,
+            lead_id: effectiveLeadId,
+            campaign_id: effectiveCampaignId,
+            call_session_id: callId,
+            scheduled_for: scheduledIso,
+            status: 'pending',
+            priority: 'high',
+            notes:
+              qualificationEval.nextSteps ||
+              claudeAnalysis.nextSteps ||
+              `Callback requested during AI call (${rawTime || 'Follow up required'})`,
+          } as any);
+        } catch (cbErr) {
+          console.warn('[RetellWebhookService] Callback creation notice:', cbErr);
+        }
+      }
 
-          await this.supabase
-            .from('campaign_enrollments')
-            .update({
-              outcome: enrollmentOutcome,
-              state: enrollmentState,
-              last_call_id: callId,
-              updated_at: new Date().toISOString(),
-            } as any)
-            .eq('campaign_id', effectiveCampaignId)
-            .eq('lead_id', effectiveLeadId);
-        } catch (enrollErr) {
-          console.warn('[RetellWebhookService] Failed to update campaign enrollment:', enrollErr);
+      // 9. Update campaign enrollment state, retry queue & trigger email automation
+      if (effectiveCampaignId) {
+        const isRetryableOutcome =
+          qualificationEval.outcome === 'NO_ANSWER' ||
+          qualificationEval.outcome === 'BUSY';
+
+        if (isRetryableOutcome) {
+          await this.campaignsRepo.recordAttemptAndScheduleRetry({
+            campaignId: effectiveCampaignId,
+            leadId: effectiveLeadId,
+            campaignLeadId: metadata.campaignLeadId,
+            callId,
+            outcome: qualificationEval.outcome.toLowerCase(),
+            qualificationOutcome: qualificationEval.outcome,
+          });
+        } else {
+          await this.campaignsRepo.completeLeadByContext({
+            campaignId: effectiveCampaignId,
+            leadId: effectiveLeadId,
+            campaignLeadId: metadata.campaignLeadId,
+            callId,
+            outcome: qualificationEval.outcome.toLowerCase(),
+            qualificationOutcome: qualificationEval.outcome,
+          });
         }
 
-        // 9. If lead is fully QUALIFIED in a campaign, trigger Resend follow-up email automation
-        if (qualificationEval.isQualified && (campaignRow?.email_followup_enabled || (campaignRow as any)?.emailFollowupEnabled)) {
+        // 10. Trigger Resend follow-up email pipeline when campaign email automation is enabled.
+        // Note: engine.ts strictly enforces that ONLY QUALIFIED leads with valid email addresses
+        // are sent via Resend; missing/invalid email or non-qualified statuses are recorded as
+        // suppressed with clear reasons in email_jobs without blocking qualification.
+        const isCampaignEmailEnabled = Boolean(
+          campaignRow?.email_followup_enabled || (campaignRow as any)?.emailFollowupEnabled
+        );
+        if (isCampaignEmailEnabled && qualificationEval.isQualified) {
           try {
-            void scheduleFollowUp(callId, 'analyzed').catch((err) => {
-              console.error('[RetellWebhookService] Error scheduling follow-up email:', err);
-            });
+            await scheduleFollowUp(callId, 'analyzed');
           } catch (followUpErr) {
             console.error('[RetellWebhookService] scheduleFollowUp invocation failed:', followUpErr);
           }
@@ -660,7 +820,7 @@ export class RetellWebhookService {
     return {
       outcome: qualificationEval.outcome,
       isQualified: qualificationEval.isQualified,
-      summary: qualificationEval.summary,
+      summary: finalSummary,
     };
   }
 

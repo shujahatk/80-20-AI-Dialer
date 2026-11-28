@@ -41,18 +41,22 @@ export function useOperationsSummary() {
       setIsLoading(true);
       setError(null);
       try {
-        const [leadsRes, callsRes, campaignsRes, agentsRes] = await Promise.all([
+        const [leadsRes, callsRes, campaignsRes, agentsRes, callbacksRes, emailsRes] = await Promise.all([
           authenticatedFetch('/api/leads?limit=100'),
-          authenticatedFetch('/api/calls?limit=50'),
+          authenticatedFetch('/api/calls?limit=100'),
           authenticatedFetch('/api/campaigns?limit=50'),
           authenticatedFetch('/api/agents'),
+          authenticatedFetch('/api/callbacks?limit=50').catch(() => null),
+          authenticatedFetch('/api/email/automation').catch(() => null),
         ]);
 
-        const [leadsJson, callsJson, campaignsJson, agentsJson] = await Promise.all([
+        const [leadsJson, callsJson, campaignsJson, agentsJson, callbacksJson, emailsJson] = await Promise.all([
           leadsRes.json().catch(() => ({})),
           callsRes.json().catch(() => ({})),
           campaignsRes.json().catch(() => ({})),
           agentsRes.json().catch(() => ({})),
+          callbacksRes ? callbacksRes.json().catch(() => ({})) : Promise.resolve({}),
+          emailsRes ? emailsRes.json().catch(() => ({})) : Promise.resolve({}),
         ]);
 
         if (cancelled) return;
@@ -68,6 +72,10 @@ export function useOperationsSummary() {
             ? agentsJson.data
             : [];
 
+        const callbacksList = Array.isArray(callbacksJson.data) ? callbacksJson.data : [];
+        const callbacksCount = Number(callbacksJson.totalCount ?? callbacksList.length) || 0;
+        const emailCounts = emailsJson.counts || emailsJson.data?.counts || undefined;
+
         setData(
           buildOperationsSummary({
             leads,
@@ -76,6 +84,8 @@ export function useOperationsSummary() {
             calls,
             campaigns,
             agents,
+            callbacksCount,
+            emailCounts,
           })
         );
         setUpdatedAt(new Date());

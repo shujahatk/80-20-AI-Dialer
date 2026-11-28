@@ -11,7 +11,7 @@
 -- - Foreign keys reference verified remote tables: organizations(id), call_sessions(id), leads(id), campaigns(id).
 -- - Fully repeatable and idempotent (IF NOT EXISTS, DROP POLICY IF EXISTS).
 -- - Rollback instructions included at the end of this file.
--- ============================================================================
+ -- ============================================================================
 
 -- ============================================================================
 -- 0. PRIVATE SCHEMA & PERMISSION HELPER

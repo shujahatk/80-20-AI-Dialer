@@ -7,3 +7,4 @@ export * from './response-schema';
 export * from './qualification-engine';
 export * from './safety-rules';
 export * from './conversation-manager';
+export * from './claude-crm-intelligence.service';

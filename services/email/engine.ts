@@ -239,12 +239,12 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
   const alreadySent =
     call.lead && call.campaign
       ? await store.hasPriorFollowUp({
-          organizationId: call.organizationId,
-          leadId: call.lead.id,
-          campaignId: call.campaign.id,
-          category,
-          excludingJobId: job.id,
-        })
+        organizationId: call.organizationId,
+        leadId: call.lead.id,
+        campaignId: call.campaign.id,
+        category,
+        excludingJobId: job.id,
+      })
       : false;
   const decision = evaluateEmailEligibility({
     call,
@@ -266,16 +266,25 @@ export async function processFollowUp(store: EmailStore, deps: EngineDeps, call:
       let subj = call.campaign.emailSubject;
       let textB = call.campaign.emailBody;
       const contactName = call.lead?.firstName ? `${call.lead.firstName} ${call.lead.lastName || ''}`.trim() : 'there';
-      const companyName = call.lead?.companyName || '';
-      const material = qualification.customerRequirements.length > 0 ? qualification.customerRequirements.join(', ') : 'commercial discussion';
+      const companyName = call.lead?.companyName || 'your organization';
+      const material = qualification.customerRequirements.length > 0 ? qualification.customerRequirements.join(', ') : 'commercial material requirements';
+      const volume = qualification.requestedInformation.length > 0 ? qualification.requestedInformation.join(', ') : 'discussed volume';
+      const nextStep = qualification.nextRecommendedAction || 'commercial quotation and follow-up discussion';
 
-      subj = subj.replace(/\{\{\s*contact_name\s*\}\}/gi, contactName)
-                 .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
-                 .replace(/\{\{\s*material_interest\s*\}\}/gi, material);
+      const applyPlaceholders = (tpl: string) =>
+        tpl
+          .replace(/\{\{\s*contact_name\s*\}\}/gi, contactName)
+          .replace(/\{\{\s*name\s*\}\}/gi, contactName)
+          .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
+          .replace(/\{\{\s*company\s*\}\}/gi, companyName)
+          .replace(/\{\{\s*material_interest\s*\}\}/gi, material)
+          .replace(/\{\{\s*product_interest\s*\}\}/gi, material)
+          .replace(/\{\{\s*estimated_volume\s*\}\}/gi, volume)
+          .replace(/\{\{\s*volume\s*\}\}/gi, volume)
+          .replace(/\{\{\s*next_steps\s*\}\}/gi, nextStep);
 
-      textB = textB.replace(/\{\{\s*contact_name\s*\}\}/gi, contactName)
-                   .replace(/\{\{\s*company_name\s*\}\}/gi, companyName)
-                   .replace(/\{\{\s*material_interest\s*\}\}/gi, material);
+      subj = applyPlaceholders(subj);
+      textB = applyPlaceholders(textB);
 
       const campaignEvidence = qualification.evidence.length > 0 && qualification.evidence[0].quote.length >= 8
         ? [qualification.evidence[0].quote.slice(0, 240)]

@@ -17,6 +17,7 @@ interface LeadsTableProps {
   onSelectAll?: () => void;
   onInstantDial?: (lead: Lead) => void;
   onViewLead?: (leadId: string) => void;
+  onArchiveLead?: (lead: Lead) => void;
   currentPage?: number;
   totalPages?: number;
   totalCount?: number;
@@ -33,6 +34,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   onSelectAll,
   onInstantDial,
   onViewLead,
+  onArchiveLead,
   currentPage = 1,
   totalPages = 1,
   totalCount = 0,
@@ -49,13 +51,31 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
       .substring(0, 2)
       .toUpperCase();
 
+  const formatEmailStatusBadge = (status?: string | null) => {
+    if (!status) return <span className="text-xs text-on-surface-variant">—</span>;
+    const s = status.toLowerCase();
+    if (s === 'delivered' || s === 'accepted') {
+      return <Badge tone="success">{s === 'delivered' ? 'Delivered' : 'Sent'}</Badge>;
+    }
+    if (s === 'queued' || s === 'pending' || s === 'sending' || s === 'retry') {
+      return <Badge tone="info">Queued</Badge>;
+    }
+    if (s === 'bounced' || s === 'failed' || s === 'complained') {
+      return <Badge tone="error">{s === 'bounced' ? 'Bounced' : 'Failed'}</Badge>;
+    }
+    if (s === 'suppressed') {
+      return <Badge tone="warning">Skipped</Badge>;
+    }
+    return <Badge tone="neutral">{status}</Badge>;
+  };
+
   const startIdx = (currentPage - 1) * perPage + 1;
   const endIdx = Math.min(totalCount, currentPage * perPage);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="max-h-[68vh] overflow-auto rounded-xl border border-border bg-surface shadow-xs">
-        <Table className="min-w-[1080px]">
+        <Table className="min-w-[1140px]">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-12">
@@ -67,26 +87,27 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   aria-label="Select all leads"
                 />
               </TableHead>
-              <TableHead>Name</TableHead>
+              <TableHead>Lead Name</TableHead>
               <TableHead>Company</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Last contact</TableHead>
-              <TableHead>Next action</TableHead>
+              <TableHead>Phone &amp; Email</TableHead>
+              <TableHead>Campaign</TableHead>
+              <TableHead>Qualification</TableHead>
+              <TableHead>Last Call &amp; Retries</TableHead>
+              <TableHead>Email Status</TableHead>
+              <TableHead>Last Activity</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={9}>
-                  <TableSkeleton rows={8} cols={6} />
+                <td colSpan={10}>
+                  <TableSkeleton rows={8} cols={7} />
                 </td>
               </tr>
             ) : leads.length === 0 ? (
               <tr>
-                <td colSpan={9}>
+                <td colSpan={10}>
                   <EmptyState
                     title="No leads found"
                     description="Adjust filters or import a CSV to add contacts."
@@ -96,6 +117,9 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             ) : (
               leads.map((lead) => {
                 const isSelected = selectedIds.includes(lead.id);
+                const attempts = lead.attempts ?? 0;
+                const maxAttempts = lead.maxAttempts ?? 3;
+                const lastActivityDate = lead.lastCallDate || lead.updatedAt || lead.createdAt;
                 return (
                   <TableRow
                     key={lead.id}
@@ -126,40 +150,69 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                         </div>
                         <div className="min-w-0">
                           <div className="truncate font-semibold text-on-surface">{lead.name}</div>
-                          <div className="truncate text-[12px] text-on-surface-variant">{lead.title}</div>
+                          <div className="truncate text-[12px] text-on-surface-variant">{lead.title || 'Contact'}</div>
                         </div>
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-on-surface">{lead.company}</TableCell>
-                    <TableCell className="min-w-[140px]">
+                    <TableCell className="min-w-[150px]">
                       <div className="tabular-nums font-medium text-on-surface">{lead.phone || '—'}</div>
-                      {lead.email && <div className="truncate text-[11px] text-on-surface-variant">{lead.email}</div>}
+                      <div className="truncate text-[11px] text-on-surface-variant">{lead.email || 'No email'}</div>
+                    </TableCell>
+                    <TableCell className="max-w-[150px] truncate text-xs text-on-surface">
+                      {lead.campaignName ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-surface-elevated px-2 py-0.5 font-medium text-on-surface border border-border">
+                          {lead.campaignName}
+                        </span>
+                      ) : (
+                        <span className="text-on-surface-variant">Unassigned</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
                     </TableCell>
+                    <TableCell className="max-w-[170px]">
+                      <div className="truncate text-xs font-medium text-on-surface">
+                        {lead.lastOutcome || 'Not called'}
+                      </div>
+                      <div className="text-[11px] text-on-surface-variant">
+                        Attempt {attempts} / {maxAttempts}
+                      </div>
+                    </TableCell>
                     <TableCell>
-                      <Badge tone={priorityTone(lead.priority)}>{priorityLabel(lead.priority)}</Badge>
+                      {formatEmailStatusBadge(lead.emailDeliveryStatus)}
                     </TableCell>
-                    <TableCell className="max-w-[180px] truncate text-on-surface-variant">
-                      {lead.lastOutcome || 'Not contacted'}
-                    </TableCell>
-                    <TableCell className="max-w-[160px] truncate text-primary">
-                      {lead.nextAction?.scheduledTime || lead.nextAction?.description || 'Ready to dial'}
+                    <TableCell className="max-w-[140px] truncate text-xs text-on-surface-variant">
+                      {lastActivityDate ? new Date(lastActivityDate).toLocaleDateString() : '—'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="inline-flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                      <div className="inline-flex items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
                         <Button
                           size="sm"
-                          disabled={lead.status === 'dnc'}
+                          disabled={lead.status === 'dnc' || lead.isDnc}
                           onClick={() => onInstantDial?.(lead)}
                         >
                           <Icon name="call" size={14} />
                           Call
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => onViewLead?.(lead.id)}>
-                          <Icon name="chevron_right" size={16} />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="View or Edit Lead"
+                          onClick={() => onViewLead?.(lead.id)}
+                        >
+                          <Icon name="edit" size={15} />
                         </Button>
+                        {onArchiveLead && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title="Archive / Delete Lead"
+                            onClick={() => onArchiveLead(lead)}
+                          >
+                            <Icon name="delete" size={15} />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

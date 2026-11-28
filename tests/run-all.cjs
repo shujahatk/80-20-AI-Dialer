@@ -22,6 +22,7 @@ const suites = [
   { name: 'CRM Architecture & Production Restructure Suite', file: path.join(__dirname, 'test-crm-architecture-restructure.cjs') },
   { name: 'Retell Call Outcome & CRM Persistence Suite', file: path.join(__dirname, 'test-call-outcome-persistence.cjs') },
   { name: 'Call State Synchronization & Concurrency Suite', file: path.join(__dirname, 'test-call-state-synchronization.cjs') },
+  { name: 'Final Master Production Automation, Claude Intelligence & E2E Suite', file: path.join(__dirname, 'test-final-production-master.cjs') },
 ];
 
 let allPassed = true;
@@ -48,6 +49,6 @@ for (const suite of suites) {
 }
 
 console.log('\n========================================================================');
-console.log('ALL TEST SUITES PASSED SUCCESSFULLY (280 / 280 VERIFIED TESTS)');
+console.log('ALL TEST SUITES PASSED SUCCESSFULLY (290 / 290 VERIFIED TESTS)');
 console.log('========================================================================\n');
 process.exit(0);

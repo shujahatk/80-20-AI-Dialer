@@ -74,7 +74,16 @@ export class LeadsService {
   public toDomain(
     row: LeadRow,
     tags: string[] = [],
-    campaignInfo?: { id?: string; name?: string }
+    campaignInfo?: { id?: string; name?: string },
+    activityInfo?: {
+      attempts?: number;
+      maxAttempts?: number;
+      lastOutcome?: string;
+      lastCallDate?: string;
+      emailDeliveryStatus?: string | null;
+      lastEmailSubject?: string | null;
+      lastEmailSentAt?: string | null;
+    }
   ): Lead {
     const fleetSize =
       typeof row.custom_fields === 'object' && row.custom_fields !== null && 'fleet_size' in row.custom_fields
@@ -89,6 +98,11 @@ export class LeadsService {
     const isDnc = Boolean(row.is_dnc ?? row.do_not_call);
     const domainStatus = toDomainLeadStatus(row.status, isDnc);
 
+    const rawNextAction = (row as any).next_action;
+    const nextAction = rawNextAction
+      ? { description: String(rawNextAction) }
+      : undefined;
+
     return {
       id: row.id,
       name: row.full_name || row.name || 'Unnamed lead',
@@ -101,14 +115,32 @@ export class LeadsService {
       fleetSize,
       tags: leadTags,
       status: domainStatus,
-      qualificationStatus: (row.status === 'COMMERCIAL_DISCUSSION' || row.status === 'TECHNICAL_EVALUATION' ? 'Qualified' : (row.temperature === 'HOT' ? 'Hot Prospect' : 'Standard')),
+      qualificationStatus:
+        domainStatus === 'qualified' || domainStatus === 'converted'
+          ? 'Qualified'
+          : domainStatus === 'dnc'
+            ? 'Do Not Call'
+            : domainStatus === 'needs-review'
+              ? 'Needs Review'
+              : domainStatus === 'unqualified'
+                ? 'Unqualified'
+                : domainStatus === 'contacted'
+                  ? 'Contacted'
+                  : 'New',
       isDnc,
       priority: (row.priority as Lead['priority']) || 'medium',
       campaignId: campaignInfo?.id || (row as any).campaign_id || undefined,
       campaignName: campaignInfo?.name || (row as any).campaign_name || undefined,
-      attempts: 0,
-      maxAttempts: 4,
-      lastOutcome: isDnc ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}` : undefined,
+      attempts: activityInfo?.attempts ?? 0,
+      maxAttempts: activityInfo?.maxAttempts ?? 3,
+      lastOutcome: isDnc
+        ? `DNC Restricted: ${row.dnc_reason ?? 'Requested'}`
+        : activityInfo?.lastOutcome || undefined,
+      lastCallDate: activityInfo?.lastCallDate || undefined,
+      nextAction,
+      emailDeliveryStatus: activityInfo?.emailDeliveryStatus ?? null,
+      lastEmailSubject: activityInfo?.lastEmailSubject ?? null,
+      lastEmailSentAt: activityInfo?.lastEmailSentAt ?? null,
       organizationId: row.organization_id || undefined,
       source: row.source || 'Direct',
       createdAt: row.created_at || undefined,
@@ -194,29 +226,105 @@ export class LeadsService {
 
     const rowIds = rows.map((r) => r.id);
     const campaignMap = new Map<string, { id: string; name: string }>();
+    const activityMap = new Map<
+      string,
+      {
+        attempts: number;
+        maxAttempts: number;
+        lastOutcome?: string;
+        lastCallDate?: string;
+        emailDeliveryStatus?: string | null;
+        lastEmailSubject?: string | null;
+        lastEmailSentAt?: string | null;
+      }
+    >();
 
     if (rowIds.length > 0) {
       try {
-        const { data: enrolls } = await this.supabase
-          .from('campaign_enrollments')
-          .select('lead_id, campaign_id, campaigns(id, name)')
-          .in('lead_id', rowIds);
+        const [enrollsRes, callsRes, emailsRes, emailJobsRes] = await Promise.all([
+          this.supabase
+            .from('campaign_enrollments')
+            .select('lead_id, campaign_id, attempt_count, max_attempts, outcome, qualification_outcome, campaigns(id, name)')
+            .in('lead_id', rowIds),
+          this.supabase
+            .from('call_sessions')
+            .select('id, lead_id, status, disconnection_reason, created_at')
+            .in('lead_id', rowIds)
+            .order('created_at', { ascending: true }),
+          this.supabase
+            .from('email_messages')
+            .select('lead_id, status, subject, created_at')
+            .in('lead_id', rowIds)
+            .order('created_at', { ascending: true }),
+          this.supabase
+            .from('email_jobs')
+            .select('lead_id, status, last_error, created_at')
+            .in('lead_id', rowIds)
+            .order('created_at', { ascending: true }),
+        ]);
 
-        if (enrolls) {
-          for (const e of enrolls) {
-            const camp = (e as any).campaigns;
+        if (enrollsRes.data) {
+          for (const e of enrollsRes.data as any[]) {
+            const camp = e.campaigns;
             campaignMap.set(e.lead_id, {
               id: e.campaign_id,
               name: camp?.name || 'Campaign',
             });
+            const curr = activityMap.get(e.lead_id) || { attempts: 0, maxAttempts: 3 };
+            curr.attempts = Math.max(curr.attempts, Number(e.attempt_count ?? 0));
+            curr.maxAttempts = Number(e.max_attempts ?? 3);
+            if (e.qualification_outcome || e.outcome) {
+              curr.lastOutcome = String(e.qualification_outcome || e.outcome);
+            }
+            activityMap.set(e.lead_id, curr);
+          }
+        }
+
+        if (callsRes.data) {
+          const callCounts = new Map<string, number>();
+          for (const c of callsRes.data as any[]) {
+            if (!c.lead_id) continue;
+            const cnt = (callCounts.get(c.lead_id) ?? 0) + 1;
+            callCounts.set(c.lead_id, cnt);
+            const curr = activityMap.get(c.lead_id) || { attempts: 0, maxAttempts: 3 };
+            curr.attempts = Math.max(curr.attempts, cnt);
+            curr.lastCallDate = c.created_at;
+            if (!curr.lastOutcome) {
+              curr.lastOutcome = c.status;
+            }
+            activityMap.set(c.lead_id, curr);
+          }
+        }
+
+        if (emailJobsRes.data) {
+          for (const j of emailJobsRes.data as any[]) {
+            if (!j.lead_id) continue;
+            const curr = activityMap.get(j.lead_id) || { attempts: 0, maxAttempts: 3 };
+            if (!curr.emailDeliveryStatus) {
+              curr.emailDeliveryStatus = j.status;
+            }
+            activityMap.set(j.lead_id, curr);
+          }
+        }
+
+        if (emailsRes.data) {
+          for (const m of emailsRes.data as any[]) {
+            if (!m.lead_id) continue;
+            const curr = activityMap.get(m.lead_id) || { attempts: 0, maxAttempts: 3 };
+            curr.emailDeliveryStatus = m.status;
+            curr.lastEmailSubject = m.subject;
+            curr.lastEmailSentAt = m.created_at;
+            activityMap.set(m.lead_id, curr);
           }
         }
       } catch {
-        // non-blocking
+        // non-blocking hydration
       }
     }
 
-    const domainLeads = rows.map((r) => this.toDomain(r, [], campaignMap.get(r.id)));
+    const domainLeads = rows.map((r) =>
+      this.toDomain(r, [], campaignMap.get(r.id), activityMap.get(r.id))
+    );
 
     return {
       leads: domainLeads,
@@ -552,12 +660,65 @@ export class LeadsService {
       const store = getDevStore();
       const row = store.leads.find((l) => l.id === id);
       if (!row) throw new Error('Lead not found');
+      const activeCall = store.calls.find(
+        (c) =>
+          c.lead_id === id &&
+          ['queued', 'in_progress', 'ringing', 'initiated', 'registered'].includes(String(c.status))
+      );
+      if (activeCall) {
+        throw new Error(
+          `Cannot delete or archive lead "${row.full_name || row.name}" while a live call is in progress.`
+        );
+      }
       row.is_archived = true;
       row.archived_at = new Date().toISOString();
+      for (const cl of store.campaignLeads) {
+        if (cl.lead_id === id && cl.state !== 'completed') {
+          cl.state = 'abandoned' as any;
+        }
+      }
       const tags = (store.tags[id] || []).map((t) => t.name);
       return this.toDomain(row, tags);
     }
 
+    // 1. Block deletion/archiving if an active call is currently in progress (Part 8)
+    try {
+      const { data: activeCalls } = await this.supabase
+        .from('call_sessions')
+        .select('id, status')
+        .eq('organization_id', orgId)
+        .eq('lead_id', id)
+        .in('status', ['queued', 'in_progress', 'ringing', 'initiated', 'registered'] as any)
+        .limit(1);
+
+      if (activeCalls && activeCalls.length > 0) {
+        throw new Error(
+          `Cannot delete or archive lead while a live call is in progress (Call ID: ${activeCalls[0].id}).`
+        );
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('while a live call is in progress')) {
+        throw err;
+      }
+    }
+
+    // 2. Cancel any pending/queued campaign enrollment so archived lead is never dialed
+    try {
+      await this.supabase
+        .from('campaign_enrollments')
+        .update({
+          state: 'abandoned',
+          next_attempt_at: null,
+          claimed_by: null,
+          claimed_at: null,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('organization_id', orgId)
+        .eq('lead_id', id)
+        .in('state', ['queued', 'calling']);
+    } catch { }
+
+    // 3. Soft-delete (archive) lead while preserving historical call & email records
     const row = await this.repo.archive(id, orgId);
 
     await this.logAudit(orgId, actorId, 'lead.archived', 'lead', id, {});

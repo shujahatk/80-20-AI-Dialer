@@ -13,8 +13,6 @@ export type QualificationStatus = (typeof QUALIFICATION_STATUSES)[number];
 
 export const SENDABLE_STATUSES: readonly QualificationStatus[] = [
   'QUALIFIED',
-  'INTERESTED',
-  'FOLLOW_UP_REQUIRED',
 ];
 
 export type InterestLevel = 'none' | 'low' | 'medium' | 'high' | 'unknown';

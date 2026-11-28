@@ -79,10 +79,36 @@ export default function DashboardPage() {
       </div>
 
       <div className="stagger grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <MetricCard className="h-full p-4" tone="brand" title="Total leads" value={dash ?? data.totalLeads} subtext="Contacts in the workspace" icon={<Users className="h-3.5 w-3.5" />} />
-        <MetricCard className="h-full p-4" tone="info" title="Calls logged" value={dash ?? data.totalCalls} subtext="Recorded call history" sparklineData={spark} icon={<PhoneCall className="h-3.5 w-3.5" />} />
-        <MetricCard className="h-full p-4" tone="success" title="Answer rate" value={dash ?? `${data.answerRate}%`} subtext={`${data.answeredCalls} answered of ${data.totalCalls}`} />
-        <MetricCard className="h-full p-4" title="Qualified" value={dash ?? data.qualifiedLeads} subtext={`${data.convertedLeads} ${data.convertedLeads === 1 ? 'meeting' : 'meetings'} booked`} />
+        <MetricCard
+          className="h-full p-4"
+          tone="brand"
+          title="Total & Eligible Leads"
+          value={dash ?? data.totalLeads}
+          subtext={`${data.eligibleLeads} callable · ${Math.max(0, data.totalLeads - data.eligibleLeads)} DNC protected`}
+          icon={<Users className="h-3.5 w-3.5" />}
+        />
+        <MetricCard
+          className="h-full p-4"
+          tone="info"
+          title="Calls Attempted"
+          value={dash ?? data.totalCalls}
+          subtext={`${data.answeredCalls} connected (${data.answerRate}%) · ${data.noAnswerCalls} no answer · ${data.busyCalls} busy · ${data.failedCalls} failed`}
+          sparklineData={spark}
+          icon={<PhoneCall className="h-3.5 w-3.5" />}
+        />
+        <MetricCard
+          className="h-full p-4"
+          tone="success"
+          title="Qualified Leads"
+          value={dash ?? data.qualifiedLeads}
+          subtext={`${data.unqualifiedLeads} unqualified · ${data.callbacksCount} callbacks`}
+        />
+        <MetricCard
+          className="h-full p-4"
+          title="Campaigns & Emails"
+          value={dash ?? `${data.activeCampaigns} Active`}
+          subtext={`${data.scheduledCampaigns} scheduled · ${data.emailsDelivered} emails sent · ${data.emailsFailedOrBounced} bounced`}
+        />
       </div>
 
       <div className="grid items-stretch gap-3 xl:grid-cols-12">

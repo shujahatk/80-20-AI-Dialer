@@ -110,6 +110,9 @@ export interface Lead {
   isDnc?: boolean;
   dncReason?: string | null;
   source?: string;
+  emailDeliveryStatus?: string | null;
+  lastEmailSubject?: string | null;
+  lastEmailSentAt?: string | null;
   organizationId?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -272,6 +275,11 @@ export interface CampaignProgressMetrics {
   failed: number;
   completed: number;
   progressPercent: number;
+  unqualified?: number;
+  pendingRetries?: number;
+  emailsSent?: number;
+  emailsDelivered?: number;
+  emailsBounced?: number;
 }
 
 export interface Campaign {
@@ -301,6 +309,10 @@ export interface Campaign {
   retryDelayMinutes?: number;
   startDate?: string | null;
   endDate?: string | null;
+  scheduledAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  desiredOutcome?: string | null;
   detailedMetrics?: CampaignProgressMetrics;
   emailFollowupEnabled?: boolean;
   emailSubject?: string | null;

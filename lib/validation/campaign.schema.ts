@@ -18,9 +18,11 @@ export const campaignCreateSchema = z.object({
   status: campaignStatusSchema.default('draft'),
   aiAgentId: z.string().optional().nullable(),
   timezone: z.string().default('America/New_York'),
-  callingDays: z.array(z.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
+  callingDays: z.array(z.number().int().min(0).max(7)).default([1, 2, 3, 4, 5]),
   startDate: z.string().optional().nullable(),
   endDate: z.string().optional().nullable(),
+  scheduledAt: z.string().optional().nullable(),
+  desiredOutcome: z.string().max(1000).optional().nullable(),
   callingWindowStart: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Format HH:MM (e.g. 09:00)')
@@ -57,6 +59,7 @@ export const campaignLeadEnrollSchema = z.object({
 export type CampaignLeadEnrollInput = z.infer<typeof campaignLeadEnrollSchema>;
 
 export const campaignActionSchema = z.object({
-  action: z.enum(['start', 'pause', 'resume', 'complete', 'cancel']),
+  action: z.enum(['start', 'pause', 'resume', 'complete', 'cancel', 'schedule']),
+  scheduledAt: z.string().optional().nullable(),
 });
 export type CampaignActionInput = z.infer<typeof campaignActionSchema>;

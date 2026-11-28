@@ -28,10 +28,24 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Step 1: Basics
+  // Step 1: Basics & Desired Outcome
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [agentId, setAgentId] = useState('ag_rachel');
+  const [availableAgents, setAvailableAgents] = useState<Array<{ id: string; name: string; retell_agent_id?: string }>>([]);
+  const [desiredOutcome, setDesiredOutcome] = useState(
+    'Confirm decision-maker responsibility, material/product requirements, estimated volume or tonnage, and agreement to receive commercial quotation.'
+  );
+  const [emailFollowupEnabled, setEmailFollowupEnabled] = useState(true);
+  const [emailSubject, setEmailSubject] = useState(
+    'RM Global Materials — Commercial Follow-Up for {{company_name}}'
+  );
+  const [emailBody, setEmailBody] = useState(
+    'Dear {{contact_name}},\n\nThank you for speaking with our commercial desk today regarding {{material_interest}}.\n\nAs discussed on our call, we have noted your requirement for {{estimated_volume}} and prepared our technical specifications and commercial terms for {{company_name}}.\n\nPlease reply with your preferred delivery schedule so we can finalize your formal quotation.'
+  );
+  const [companySignature, setCompanySignature] = useState(
+    'RM Global Materials — Commercial Desk | sales@rmrg.be'
+  );
 
   // Step 2: Leads
   const [availableLeads, setAvailableLeads] = useState<LeadSummary[]>([]);
@@ -43,22 +57,25 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
   const [callingWindowStart, setCallingWindowStart] = useState('09:00');
   const [callingWindowEnd, setCallingWindowEnd] = useState('17:00');
   const [timezone, setTimezone] = useState('America/New_York');
-  const [maxAttempts, setMaxAttempts] = useState('4');
+  const [maxAttempts, setMaxAttempts] = useState('3');
   const [retryDelayMinutes, setRetryDelayMinutes] = useState('60');
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [scheduledDateTime, setScheduledDateTime] = useState('');
   const [endDate, setEndDate] = useState('');
   const [concurrencyLimit, setConcurrencyLimit] = useState('10');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Load leads when modal opens
+  // Load leads and agents when modal opens
   useEffect(() => {
     if (isOpen) {
       setStep(1);
       setErrorMessage(null);
       setIsLoadingLeads(true);
-      authenticatedFetch('/api/leads?limit=100')
-        .then((res) => res.json())
-        .then((data) => {
+      Promise.all([
+        authenticatedFetch('/api/leads?limit=100').then((res) => res.json()).catch(() => ({})),
+        authenticatedFetch('/api/agents').then((res) => res.json()).catch(() => ({})),
+      ])
+        .then(([data, agentsJson]) => {
           if (data.success && Array.isArray(data.data)) {
             const list: LeadSummary[] = data.data.map((l: any) => ({
               id: l.id,
@@ -69,12 +86,17 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
               status: l.status || 'new',
             }));
             setAvailableLeads(list);
-            // Default select all non-DNC leads
             setSelectedLeadIds(list.filter((l) => !l.isDnc).map((l) => l.id));
           }
-        })
-        .catch(() => {
-          // Fallback gracefully
+          const rawAgents = Array.isArray(agentsJson.data)
+            ? agentsJson.data
+            : Array.isArray(agentsJson.agents)
+            ? agentsJson.agents
+            : [];
+          if (rawAgents.length > 0) {
+            setAvailableAgents(rawAgents);
+            setAgentId(rawAgents[0].id);
+          }
         })
         .finally(() => {
           setIsLoadingLeads(false);
@@ -119,7 +141,7 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
     );
   };
 
-  const handleCreateCampaign = async (startImmediately: boolean) => {
+  const handleCreateCampaign = async (launchMode: 'draft' | 'now' | 'schedule') => {
     if (!name.trim()) {
       setErrorMessage('Please enter a campaign name.');
       setStep(1);
@@ -130,13 +152,24 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
       setStep(3);
       return;
     }
+    if (launchMode === 'schedule' && !scheduledDateTime) {
+      setErrorMessage('Please select a scheduled start date and time.');
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage(null);
 
     try {
+      const scheduledIso =
+        launchMode === 'schedule' && scheduledDateTime
+          ? new Date(scheduledDateTime).toISOString()
+          : startDate
+          ? new Date(startDate).toISOString()
+          : undefined;
+
       // 1. Create the campaign
-      const createRes = await fetch('/api/campaigns', {
+      const createRes = await authenticatedFetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,11 +181,23 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
           callingWindowStart,
           callingWindowEnd,
           timezone,
-          maxAttemptsPerLead: parseInt(maxAttempts, 10) || 4,
+          maxAttemptsPerLead: parseInt(maxAttempts, 10) || 3,
           retryDelayMinutes: parseInt(retryDelayMinutes, 10) || 60,
           concurrencyLimit: parseInt(concurrencyLimit, 10) || 10,
-          startDate: startDate ? new Date(startDate).toISOString() : undefined,
+          startDate: scheduledIso,
+          scheduledAt: launchMode === 'schedule' ? scheduledIso : null,
           endDate: endDate ? new Date(endDate).toISOString() : undefined,
+          desiredOutcome: desiredOutcome.trim() || null,
+          emailFollowupEnabled,
+          emailSubject: emailSubject.trim() || null,
+          emailBody: emailBody.trim() || null,
+          companySignature: companySignature.trim() || null,
+          qualificationCriteria: {
+            desiredOutcome: desiredOutcome.trim() || null,
+            requireDecisionMaker: true,
+            requireMaterialOrVolume: true,
+          },
+          requiredCommercialInfo: ['material_interest', 'estimated_volume', 'decision_maker'],
         }),
       });
 
@@ -165,7 +210,7 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
 
       // 2. Enroll selected leads if any
       if (selectedLeadIds.length > 0) {
-        const enrollRes = await fetch(`/api/campaigns/${campaignId}/leads`, {
+        const enrollRes = await authenticatedFetch(`/api/campaigns/${campaignId}/leads`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ leadIds: selectedLeadIds }),
@@ -176,9 +221,9 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
         }
       }
 
-      // 3. Start immediately if user requested
-      if (startImmediately) {
-        const startRes = await fetch(`/api/campaigns/${campaignId}/actions`, {
+      // 3. Start Immediately OR Schedule
+      if (launchMode === 'now') {
+        const startRes = await authenticatedFetch(`/api/campaigns/${campaignId}/actions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'start' }),
@@ -186,6 +231,16 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
         const startData = await startRes.json();
         if (!startData.success) {
           throw new Error(startData.error || 'Campaign created but failed to start');
+        }
+      } else if (launchMode === 'schedule' && scheduledIso) {
+        const schedRes = await authenticatedFetch(`/api/campaigns/${campaignId}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'schedule', scheduledAt: scheduledIso }),
+        });
+        const schedData = await schedRes.json();
+        if (!schedData.success) {
+          throw new Error(schedData.error || 'Campaign created but failed to schedule');
         }
       }
 
@@ -325,16 +380,71 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="font-semibold text-on-surface">Assigned AI Agent *</label>
+              <label className="font-semibold text-on-surface">Assigned Retell AI Voice Agent *</label>
               <select
                 value={agentId}
                 onChange={(e) => setAgentId(e.target.value)}
                 className="bg-surface-container text-on-surface text-xs rounded-lg px-3 py-2 border border-outline-variant/10 focus:outline-none focus:ring-1 focus:ring-primary"
               >
-                <option value="ag_rachel">Rachel — Enterprise Outbound SDR (Direct &amp; Consultative)</option>
-                <option value="ag_marcus">Marcus — Fleet Account Executive (Discovery &amp; Objection Handling)</option>
-                <option value="ag_elena">Elena — Fast Qualification &amp; Demo Booking (High Energy)</option>
+                {availableAgents.length > 0 ? (
+                  availableAgents.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      {ag.name} {ag.retell_agent_id ? `(${ag.retell_agent_id})` : ''}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="ag_rachel">Rachel — RM Commercial Trading &amp; Materials Agent (Retell AI)</option>
+                    <option value="ag_marcus">Marcus — Fleet Account Executive (Retell AI)</option>
+                    <option value="ag_elena">Elena — Fast Qualification &amp; Demo Booking (Retell AI)</option>
+                  </>
+                )}
               </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="font-semibold text-on-surface">
+                Campaign Desired Outcome (Claude Qualification Criteria) *
+              </label>
+              <textarea
+                rows={2}
+                value={desiredOutcome}
+                onChange={(e) => setDesiredOutcome(e.target.value)}
+                placeholder="Define the exact business outcome Claude must verify from the call transcript to qualify a lead..."
+                className="bg-surface-container text-on-surface text-xs rounded-lg px-3 py-2 border border-outline-variant/10 focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+              />
+            </div>
+
+            <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10 flex flex-col gap-2.5">
+              <label className="flex items-center justify-between cursor-pointer">
+                <span className="font-semibold text-on-surface">
+                  Automatic Resend Email for Qualified Leads Only
+                </span>
+                <input
+                  type="checkbox"
+                  checked={emailFollowupEnabled}
+                  onChange={(e) => setEmailFollowupEnabled(e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+              </label>
+              {emailFollowupEnabled && (
+                <div className="flex flex-col gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={emailSubject}
+                    onChange={(e) => setEmailSubject(e.target.value)}
+                    placeholder="Email Subject (supports {{company_name}}, {{contact_name}})"
+                    className="bg-surface-container-low text-on-surface text-xs rounded-lg px-2.5 py-1.5 border border-outline-variant/15"
+                  />
+                  <textarea
+                    rows={3}
+                    value={emailBody}
+                    onChange={(e) => setEmailBody(e.target.value)}
+                    placeholder="Email Body template..."
+                    className="bg-surface-container-low text-on-surface text-xs rounded-lg px-2.5 py-1.5 border border-outline-variant/15"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end pt-2">
@@ -702,6 +812,32 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
               </p>
             </div>
 
+            {/* Schedule Execution Option (Option B) */}
+            <div className="p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/10 flex flex-col gap-2">
+              <span className="font-semibold text-on-surface">
+                Launch Option B — Schedule Future Execution (Optional)
+              </span>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={scheduledDateTime}
+                  onChange={(e) => setScheduledDateTime(e.target.value)}
+                  className="flex-1 bg-surface-container text-on-surface rounded-lg px-3 py-1.5 border border-outline-variant/15 text-xs"
+                />
+                <button
+                  type="button"
+                  disabled={isSubmitting || !scheduledDateTime}
+                  onClick={() => handleCreateCampaign('schedule')}
+                  className="px-4 py-1.5 rounded-lg bg-tertiary-container text-on-tertiary-container hover:brightness-110 text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? 'Scheduling...' : 'Schedule Campaign'}
+                </button>
+              </div>
+              <span className="text-[11px] text-on-surface-variant">
+                Scheduled campaigns start automatically on the server when the scheduled time arrives.
+              </span>
+            </div>
+
             {/* Actions */}
             <div className="flex items-center justify-between pt-2 border-t border-outline-variant/10">
               <button
@@ -716,7 +852,7 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
                 <button
                   type="button"
                   disabled={isSubmitting}
-                  onClick={() => handleCreateCampaign(false)}
+                  onClick={() => handleCreateCampaign('draft')}
                   className="px-4 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high text-xs font-semibold text-on-surface transition-colors"
                 >
                   Save as Draft
@@ -724,10 +860,10 @@ export const NewCampaignModal: React.FC<NewCampaignModalProps> = ({
                 <button
                   type="button"
                   disabled={isSubmitting}
-                  onClick={() => handleCreateCampaign(true)}
+                  onClick={() => handleCreateCampaign('now')}
                   className="px-5 py-2 rounded-lg bg-primary-container text-on-primary-container hover:bg-primary text-xs font-bold shadow-sm transition-all"
                 >
-                  {isSubmitting ? 'Starting...' : 'Start Campaign Now'}
+                  {isSubmitting ? 'Starting...' : 'Start Immediately'}
                 </button>
               </div>
             </div>

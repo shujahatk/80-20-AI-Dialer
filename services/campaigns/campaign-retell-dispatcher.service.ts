@@ -497,12 +497,17 @@ export class CampaignRetellDispatcher {
     try {
       const { data: lead } = await this.supabase
         .from('leads')
-        .select('is_dnc, status')
+        .select('*')
         .eq('id', leadId)
         .eq('organization_id', organizationId)
         .single();
 
-      return Boolean(lead && (lead.is_dnc || lead.status === 'dnc'));
+      return Boolean(
+        lead &&
+          ((lead as any).do_not_call ||
+            (lead as any).is_dnc ||
+            String((lead as any).status).toLowerCase() === 'dnc')
+      );
     } catch {
       return false;
     }

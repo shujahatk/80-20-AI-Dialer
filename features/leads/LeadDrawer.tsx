@@ -97,6 +97,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   const [callsLoaded, setCallsLoaded] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [showTranscriptCallId, setShowTranscriptCallId] = useState<string | null>(null);
+  const [leadEmails, setLeadEmails] = useState<any[]>([]);
+  const [leadEmailJobs, setLeadEmailJobs] = useState<any[]>([]);
+  const [leadCallbacks, setLeadCallbacks] = useState<any[]>([]);
+  const [emailsLoaded, setEmailsLoaded] = useState(false);
 
   useEffect(() => {
     if (!leadId) return;
@@ -106,6 +110,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     setDrawerTab('overview');
     setCallsLoaded(false);
     setLeadCalls([]);
+    setEmailsLoaded(false);
+    setLeadEmails([]);
+    setLeadEmailJobs([]);
+    setLeadCallbacks([]);
     setExpandedCallId(null);
     setShowTranscriptCallId(null);
 
@@ -138,7 +146,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   }, [leadId]);
 
   useEffect(() => {
-    if (!leadId || drawerTab !== 'calls' || callsLoaded) return;
+    if (!leadId || (drawerTab !== 'calls' && drawerTab !== 'intelligence') || callsLoaded) return;
     authenticatedFetch(`/api/leads/${leadId}/calls?limit=50`)
       .then((res) => res.json())
       .then((data) => {
@@ -148,6 +156,21 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
       })
       .catch(() => setCallsLoaded(true));
   }, [leadId, drawerTab, callsLoaded]);
+
+  useEffect(() => {
+    if (!leadId || (drawerTab !== 'emails' && drawerTab !== 'overview' && drawerTab !== 'activity') || emailsLoaded) return;
+    authenticatedFetch(`/api/leads/${leadId}/emails`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setLeadEmails(Array.isArray(data.data.messages) ? data.data.messages : []);
+          setLeadEmailJobs(Array.isArray(data.data.jobs) ? data.data.jobs : []);
+          setLeadCallbacks(Array.isArray(data.data.callbacks) ? data.data.callbacks : []);
+        }
+        setEmailsLoaded(true);
+      })
+      .catch(() => setEmailsLoaded(true));
+  }, [leadId, drawerTab, emailsLoaded]);
 
   if (!leadId) return null;
 
@@ -199,7 +222,13 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
 
   const handleArchive = async () => {
     if (!lead) return;
-    if (!confirm(`Archive lead "${lead.name}"? This lead will be hidden from active dialer queues.`)) return;
+    if (
+      !confirm(
+        `Archive lead "${lead.name}"? This lead will be removed from active campaign queues and new dispatches while preserving historical call and email records.`
+      )
+    ) {
+      return;
+    }
 
     try {
       const res = await authenticatedFetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
@@ -207,6 +236,8 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
       if (data.success) {
         onLeadUpdated();
         onClose();
+      } else {
+        setFeedback(data.error || 'Failed to archive lead');
       }
     } catch {
       setFeedback('Failed to archive lead');
@@ -426,9 +457,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               onChange={setDrawerTab}
               items={[
                 { id: 'overview', label: 'Overview' },
-                { id: 'intelligence', label: 'AI' },
-                { id: 'activity', label: 'Activity' },
+                { id: 'intelligence', label: 'AI Analysis' },
                 { id: 'calls', label: 'Calls' },
+                { id: 'emails', label: 'Emails' },
+                { id: 'activity', label: 'Activity' },
                 { id: 'notes', label: 'Notes' },
               ]}
             />
@@ -593,14 +625,26 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                     </div>
                   </div>
 
-                  {/* SECTION 3: FOLLOW-UP */}
+                  {/* SECTION 3: FOLLOW-UP & CALLBACKS */}
                   <div className="flex flex-col gap-space-xs p-space-md rounded-xl bg-surface-container border border-outline-variant/10">
                     <span className="text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-                      Follow-Up
+                      Follow-Up &amp; Campaign Context
                     </span>
                     <div className="grid grid-cols-2 gap-space-sm pt-1">
                       <div>
-                        <span className="text-xs text-on-surface-variant block">Last Contact</span>
+                        <span className="text-xs text-on-surface-variant block">Assigned Campaign</span>
+                        <span className="text-sm font-medium text-on-surface">
+                          {lead.campaignName || 'Unassigned'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Dial Attempts</span>
+                        <span className="text-sm font-medium text-on-surface">
+                          {lead.attempts ?? 0} / {lead.maxAttempts ?? 3}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-on-surface-variant block">Last Call Outcome</span>
                         <span className="text-sm text-on-surface">
                           {lead.lastOutcome || 'Not contacted yet'}
                         </span>
@@ -612,6 +656,30 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                         </span>
                       </div>
                     </div>
+
+                    {leadCallbacks.length > 0 && (
+                      <div className="mt-3 pt-2 border-t border-outline-variant/15 flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold text-tertiary">
+                          Scheduled Callbacks ({leadCallbacks.length})
+                        </span>
+                        {leadCallbacks.map((cb: any) => (
+                          <div
+                            key={cb.id}
+                            className="p-2 rounded-lg bg-surface-container-lowest border border-outline-variant/10 text-xs flex items-center justify-between gap-2"
+                          >
+                            <div>
+                              <div className="font-semibold text-on-surface">
+                                {new Date(cb.scheduled_at || cb.scheduled_for).toLocaleString()}
+                              </div>
+                              <div className="text-on-surface-variant">{cb.notes || 'Follow-up callback requested'}</div>
+                            </div>
+                            <Badge tone={cb.status === 'completed' ? 'success' : 'warning'}>
+                              {cb.status || 'pending'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -725,24 +793,212 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               )}
 
               {drawerTab === 'intelligence' && (
-                <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                    AI intelligence
-                  </span>
-                  <div className="grid grid-cols-2 gap-3 pt-1 text-sm">
-                    <div>
-                      <span className="block text-xs text-on-surface-variant">Intent score</span>
-                      <span className="font-semibold text-on-surface">{lead.buyingIntentScore ?? '—'}</span>
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                        Claude CRM Intelligence &amp; Qualification
+                      </span>
+                      <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
                     </div>
-                    <div>
-                      <span className="block text-xs text-on-surface-variant">Recommended action</span>
-                      <span className="font-medium text-primary">{lead.nextAction?.description || 'Ready to dial'}</span>
+                    {(() => {
+                      const latestAnalyzedCall = leadCalls.find((c) => c.analysis?.qualification);
+                      const q = latestAnalyzedCall?.analysis?.qualification as any;
+                      const summary = latestAnalyzedCall?.outcome_notes || latestAnalyzedCall?.analysis?.summary;
+
+                      if (!latestAnalyzedCall || !q) {
+                        return (
+                          <div className="pt-2 text-xs text-on-surface-variant">
+                            <p>No structured post-call AI analysis recorded yet for this lead.</p>
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <span className="block text-xs text-on-surface-variant">Current Status</span>
+                                <span className="font-semibold text-on-surface">{leadStatusLabel(lead.status)}</span>
+                              </div>
+                              <div>
+                                <span className="block text-xs text-on-surface-variant">Recommended Action</span>
+                                <span className="font-medium text-primary">{lead.nextAction?.description || 'Ready to dial'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-col gap-3 pt-2 text-xs">
+                          {summary && (
+                            <div className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/10 text-on-surface leading-relaxed">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-primary block mb-1">
+                                Executive Call Summary
+                              </span>
+                              {summary}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2.5 bg-surface-container-lowest p-3 rounded-lg border border-outline-variant/15">
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Qualification Decision</span>
+                              <span className="font-semibold text-on-surface">{q.outcome || latestAnalyzedCall.outcome}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Decision Maker</span>
+                              <span className="font-semibold text-on-surface">
+                                {q.decisionMakerInvolved ? 'Confirmed' : 'Not Confirmed'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Material / Product</span>
+                              <span className="font-medium text-on-surface">{q.materialInterest || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Estimated Volume</span>
+                              <span className="font-medium text-on-surface">{q.estimatedVolume || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Material Grade</span>
+                              <span className="font-medium text-on-surface">{q.materialGrade || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Frequency / Timeline</span>
+                              <span className="font-medium text-on-surface">
+                                {[q.frequency, q.commercialTimeline || q.purchaseIntent].filter(Boolean).join(' • ') || '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Delivery / Pickup Location</span>
+                              <span className="font-medium text-on-surface">{q.deliveryOrPickupLocation || '—'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-on-surface-variant block">Confirmed Email</span>
+                              <span className="font-mono text-on-surface">{q.emailAddress || lead.email || '—'}</span>
+                            </div>
+                          </div>
+
+                          {q.qualificationReason && (
+                            <div className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/10">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant block mb-0.5">
+                                Qualification Reasoning
+                              </span>
+                              <span className="text-on-surface">{q.qualificationReason}</span>
+                            </div>
+                          )}
+
+                          {q.nextSteps && (
+                            <div className="p-2.5 rounded-lg bg-primary/5 border border-primary/20">
+                              <span className="text-[10px] font-semibold uppercase tracking-wider text-primary block mb-0.5">
+                                Agreed Next Step
+                              </span>
+                              <span className="font-medium text-on-surface">{q.nextSteps}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {drawerTab === 'emails' && (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between pb-1 border-b border-border">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                      Email History ({leadEmails.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEmailsLoaded(false);
+                      }}
+                      className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                    >
+                      <Icon name="refresh" size={13} />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+
+                  {!emailsLoaded && (
+                    <div className="py-6 text-center text-xs text-on-surface-variant">
+                      Loading email history...
                     </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Badge tone={leadStatusTone(lead.status)}>{leadStatusLabel(lead.status)}</Badge>
-                    <Badge tone={priorityTone(lead.priority)}>{priorityLabel(lead.priority)}</Badge>
-                  </div>
+                  )}
+
+                  {emailsLoaded && leadEmails.length === 0 && leadEmailJobs.length === 0 && (
+                    <div className="p-4 text-center rounded-xl bg-surface-container-low border border-outline-variant/10 text-xs text-on-surface-variant">
+                      No follow-up emails sent or queued for this lead yet. Automatic emails are triggered exclusively for qualified campaign leads.
+                    </div>
+                  )}
+
+                  {leadEmails.map((msg: any) => (
+                    <div
+                      key={msg.id}
+                      className="rounded-xl border border-border bg-surface-elevated p-3.5 text-xs flex flex-col gap-2 shadow-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-sm text-on-surface">{msg.subject}</div>
+                          <div className="text-[11px] text-on-surface-variant">
+                            To: <span className="font-mono text-on-surface">{msg.toEmail}</span> ·{' '}
+                            {msg.createdAt ? new Date(msg.createdAt).toLocaleString() : ''}
+                          </div>
+                        </div>
+                        <Badge
+                          tone={
+                            msg.status === 'delivered' || msg.status === 'accepted'
+                              ? 'success'
+                              : msg.status === 'bounced' || msg.status === 'failed'
+                              ? 'error'
+                              : 'info'
+                          }
+                        >
+                          {msg.status}
+                        </Badge>
+                      </div>
+
+                      {msg.textBody && (
+                        <div className="p-2.5 rounded-lg bg-surface-container-low border border-outline-variant/10 whitespace-pre-wrap text-on-surface max-h-44 overflow-y-auto leading-relaxed">
+                          {msg.textBody}
+                        </div>
+                      )}
+
+                      {msg.lastError && (
+                        <div className="text-error text-[11px] font-medium">
+                          Delivery Error: {msg.lastError}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1 border-t border-outline-variant/10 text-[10px] font-mono text-on-surface-variant">
+                        <span>Resend ID: {msg.resendId || 'Pending'}</span>
+                        <span>
+                          {msg.deliveredAt
+                            ? `Delivered ${new Date(msg.deliveredAt).toLocaleTimeString()}`
+                            : msg.acceptedAt
+                            ? `Accepted ${new Date(msg.acceptedAt).toLocaleTimeString()}`
+                            : 'Queued'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  {leadEmails.length === 0 &&
+                    leadEmailJobs
+                      .filter((j: any) => j.status === 'suppressed' || j.status === 'failed')
+                      .map((job: any) => (
+                        <div
+                          key={job.id}
+                          className="rounded-xl border border-border bg-surface-container-low p-3 text-xs flex flex-col gap-1"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-on-surface">Follow-Up Email Evaluation</span>
+                            <Badge tone="warning">{job.status}</Badge>
+                          </div>
+                          <div className="text-on-surface-variant">
+                            {job.lastError ||
+                              (Array.isArray(job.eligibilityReasons) &&
+                                job.eligibilityReasons.map((r: any) => r.message).join(' ')) ||
+                              'Email was skipped based on qualification or eligibility rules.'}
+                          </div>
+                        </div>
+                      ))}
                 </div>
               )}
 
@@ -784,11 +1040,12 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                     </div>
                   )}
 
-                  {leadCalls.map((call) => {
+                  {leadCalls.map((call, idx) => {
                     const isExpanded = expandedCallId === call.id;
                     const isTranscriptOpen = showTranscriptCallId === call.id;
                     const q = call.analysis?.qualification;
                     const summary = call.outcome_notes || call.analysis?.summary;
+                    const attemptNumber = leadCalls.length - idx;
 
                     return (
                       <div
@@ -800,11 +1057,12 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
                           <div className="flex flex-col gap-0.5">
                             <div className="flex items-center gap-1.5 font-semibold text-on-surface text-sm">
                               <Icon name="phone_forwarded" size={15} className="text-primary" />
-                              <span>Outbound AI Call</span>
+                              <span>Attempt #{attemptNumber} · Outbound AI Call</span>
                               <span className="text-xs font-normal text-on-surface-variant">· {call.duration_seconds || 0}s</span>
                             </div>
                             <div className="text-[11px] text-on-surface-variant">
                               {call.started_at ? new Date(call.started_at).toLocaleString() : 'Time unavailable'}
+                              {call.status ? ` · Technical Status: ${call.status}` : ''}
                             </div>
                           </div>
                           <Badge tone={callOutcomeTone(call.outcome)}>

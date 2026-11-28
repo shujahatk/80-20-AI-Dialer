@@ -87,6 +87,32 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
     }
   };
 
+  const handleDispatchNext = async () => {
+    setActionLoading(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/dispatch`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Dispatch cycle failed');
+      }
+      const d = data.data;
+      if (d?.dispatched) {
+        setStatusMessage(`Dispatched call to ${d.candidate?.fullName || d.candidate?.phone || 'next lead'}`);
+      } else {
+        setStatusMessage(d?.reason || d?.error || 'Queue checked — no eligible lead ready right now');
+      }
+      await fetchCampaignData();
+      onActionComplete?.();
+    } catch (err: any) {
+      setStatusMessage(`Error: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleRemoveLead = async (leadId: string) => {
     if (!confirm('Remove this lead from the campaign?')) return;
     setIsRemovingLead(leadId);
@@ -164,15 +190,26 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
             )}
 
             {isRunning && (
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={() => handleAction('pause')}
-                className="flex items-center gap-1 px-3 py-1 rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest font-semibold transition-all border border-outline-variant/20"
-              >
-                <Icon name="pause" size={14} />
-                <span>Pause</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={handleDispatchNext}
+                  className="flex items-center gap-1 px-3 py-1 rounded-lg bg-primary text-on-primary font-semibold transition-all shadow-xs"
+                >
+                  <Icon name="phone_forwarded" size={14} />
+                  <span>Dispatch Next Lead</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => handleAction('pause')}
+                  className="flex items-center gap-1 px-3 py-1 rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container-highest font-semibold transition-all border border-outline-variant/20"
+                >
+                  <Icon name="pause" size={14} />
+                  <span>Pause</span>
+                </button>
+              </>
             )}
 
             {isPaused && (
@@ -223,51 +260,46 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
         <div className="flex items-center px-4 border-b border-outline-variant/10 text-xs font-semibold bg-surface-container-low">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
-              activeTab === 'overview'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
+            className={`py-3 px-3 border-b-2 transition-colors ${activeTab === 'overview'
+              ? 'border-primary text-primary font-bold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
           >
             Overview
           </button>
           <button
             onClick={() => setActiveTab('leads')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
-              activeTab === 'leads'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
+            className={`py-3 px-3 border-b-2 transition-colors ${activeTab === 'leads'
+              ? 'border-primary text-primary font-bold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
           >
             Leads ({leads.length})
           </button>
           <button
             onClick={() => setActiveTab('calls')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
-              activeTab === 'calls'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
+            className={`py-3 px-3 border-b-2 transition-colors ${activeTab === 'calls'
+              ? 'border-primary text-primary font-bold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
           >
             Calls
           </button>
           <button
             onClick={() => setActiveTab('performance')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
-              activeTab === 'performance'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
+            className={`py-3 px-3 border-b-2 transition-colors ${activeTab === 'performance'
+              ? 'border-primary text-primary font-bold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
           >
             Performance
           </button>
           <button
             onClick={() => setActiveTab('configuration')}
-            className={`py-3 px-3 border-b-2 transition-colors ${
-              activeTab === 'configuration'
-                ? 'border-primary text-primary font-bold'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
-            }`}
+            className={`py-3 px-3 border-b-2 transition-colors ${activeTab === 'configuration'
+              ? 'border-primary text-primary font-bold'
+              : 'border-transparent text-on-surface-variant hover:text-on-surface'
+              }`}
           >
             Configuration
           </button>
@@ -307,26 +339,56 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
                     </div>
                   </div>
 
-                  {/* 4 Summary Metric Cards */}
+                  {/* Campaign Operational Metrics Grid (Part 9) */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                     <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
-                      <span className="text-[0.6875rem] text-on-surface-variant block">Enrolled Leads</span>
-                      <span className="text-lg font-bold text-on-surface">{campaign?.leadCount}</span>
+                      <span className="text-[0.6875rem] text-on-surface-variant block">Total Leads</span>
+                      <span className="text-lg font-bold text-on-surface">{campaign?.leadCount ?? 0}</span>
                     </div>
                     <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
-                      <span className="text-[0.6875rem] text-on-surface-variant block">Attempted</span>
-                      <span className="text-lg font-bold text-on-surface">{campaign?.completedLeads}</span>
-                    </div>
-                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
-                      <span className="text-[0.6875rem] text-tertiary block">Connected</span>
-                      <span className="text-lg font-bold text-tertiary">
-                        {campaign?.stats?.connectedPickups ?? 0}
+                      <span className="text-[0.6875rem] text-on-surface-variant block">Processed / Remaining</span>
+                      <span className="text-lg font-bold text-on-surface">
+                        {campaign?.completedLeads ?? 0} / {campaign?.detailedMetrics?.remaining ?? Math.max(0, (campaign?.leadCount ?? 0) - (campaign?.completedLeads ?? 0))}
                       </span>
                     </div>
                     <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
-                      <span className="text-[0.6875rem] text-primary block">Appointments</span>
+                      <span className="text-[0.6875rem] text-tertiary block">Connected / Attempts</span>
+                      <span className="text-lg font-bold text-tertiary">
+                        {campaign?.stats?.connectedPickups ?? 0} / {campaign?.detailedMetrics?.attempted ?? campaign?.completedLeads ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
+                      <span className="text-[0.6875rem] text-primary block">Qualified / Unqualified</span>
                       <span className="text-lg font-bold text-primary">
-                        {campaign?.stats?.bookedAppointments ?? 0}
+                        {campaign?.stats?.aiQualified ?? 0} / {campaign?.detailedMetrics?.unqualified ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
+                      <span className="text-[0.6875rem] text-on-surface-variant block">Pending Retries</span>
+                      <span className="text-lg font-bold text-on-surface">
+                        {campaign?.detailedMetrics?.pendingRetries ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
+                      <span className="text-[0.6875rem] text-error block">Failed / No Answer</span>
+                      <span className="text-lg font-bold text-error">
+                        {campaign?.detailedMetrics?.failed ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
+                      <span className="text-[0.6875rem] text-tertiary block">Emails Sent / Delivered</span>
+                      <span className="text-lg font-bold text-tertiary">
+                        {campaign?.detailedMetrics?.emailsSent ?? 0} / {campaign?.detailedMetrics?.emailsDelivered ?? 0}
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-xl bg-surface-container border border-outline-variant/10">
+                      <span className="text-[0.6875rem] text-on-surface-variant block">Scheduled / Started</span>
+                      <span className="text-[11px] font-semibold text-on-surface">
+                        {campaign?.startedAt
+                          ? new Date(campaign.startedAt).toLocaleDateString()
+                          : campaign?.scheduledAt
+                            ? `Sched: ${new Date(campaign.scheduledAt).toLocaleDateString()}`
+                            : 'Not started'}
                       </span>
                     </div>
                   </div>
@@ -391,15 +453,14 @@ export const CampaignDrawer: React.FC<CampaignDrawerProps> = ({
                                 <td className="p-2.5 text-on-surface font-semibold">{m.attemptCount}</td>
                                 <td className="p-2.5">
                                   <span
-                                    className={`px-2 py-0.5 rounded text-[0.625rem] font-semibold capitalize ${
-                                      m.state === 'calling'
-                                        ? 'bg-tertiary-container/30 text-tertiary animate-pulse'
-                                        : m.state === 'completed'
+                                    className={`px-2 py-0.5 rounded text-[0.625rem] font-semibold capitalize ${m.state === 'calling'
+                                      ? 'bg-tertiary-container/30 text-tertiary animate-pulse'
+                                      : m.state === 'completed'
                                         ? 'bg-surface-container text-on-surface'
                                         : m.state === 'abandoned'
-                                        ? 'bg-error-container/30 text-error'
-                                        : 'bg-surface-container text-on-surface-variant'
-                                    }`}
+                                          ? 'bg-error-container/30 text-error'
+                                          : 'bg-surface-container text-on-surface-variant'
+                                      }`}
                                   >
                                     {m.state}
                                   </span>

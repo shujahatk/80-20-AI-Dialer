@@ -269,7 +269,7 @@ export class SupabaseEmailStore {
         const value = String(result.data);
         if (value === 'claimed' || value === 'terminal' || value === 'busy' || value === 'waiting') return value;
       }
-    } catch {}
+    } catch { }
 
     // Fallback: direct table update when RPC is not in remote schema cache
     const { data: job } = await db().from('email_jobs').select('*').eq('id', jobId).maybeSingle();
@@ -387,7 +387,7 @@ export class SupabaseEmailStore {
           detail: entry.detail,
           created_at: entry.createdAt ?? new Date().toISOString(),
         });
-    } catch {}
+    } catch { }
 
     if (entry.callId) {
       try {
@@ -400,7 +400,7 @@ export class SupabaseEmailStore {
             entity_id: entry.callId,
             metadata: entry.detail as any,
           });
-      } catch {}
+      } catch { }
     }
   }
 
@@ -623,7 +623,7 @@ export class SupabaseEmailStore {
         if (sw.emailFollowupEnabled !== undefined) emailFollowupEnabled = Boolean(sw.emailFollowupEnabled);
         if (sw.emailLawfulBasis) lawfulBasis = asBasis(sw.emailLawfulBasis);
         if (sw.emailLawfulBasisNote) lawfulBasisNote = String(sw.emailLawfulBasisNote);
-      } catch {}
+      } catch { }
     }
 
     let emailSubject: string | null = null;
@@ -643,7 +643,7 @@ export class SupabaseEmailStore {
         qualificationCriteria = parsed.qualificationCriteria || null;
         requiredCommercialInfo = parsed.requiredCommercialInfo || null;
         campInstructions = parsed.instructions || campInstructions;
-      } catch {}
+      } catch { }
     }
 
     const lead: FollowUpLead | null = leadRow
