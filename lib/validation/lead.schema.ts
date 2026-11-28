@@ -49,7 +49,7 @@ export const leadUpdateSchema = leadCreateSchema.partial();
 export type LeadUpdateInput = z.input<typeof leadUpdateSchema>;
 
 export const leadBulkActionSchema = z.object({
-  action: z.enum(['dnc', 'status', 'priority', 'archive', 'tag']),
+  action: z.enum(['dnc', 'status', 'priority', 'archive', 'delete', 'tag']),
   leadIds: z.array(z.string()).min(1, 'At least one lead required'),
   status: leadStatusSchema.optional(),
   priority: leadPrioritySchema.optional(),

@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Icon } from '@/lib/ui/icons';
+import { Search, X, SlidersHorizontal, ChevronDown } from 'lucide-react';
 
 interface LeadsFiltersBarProps {
   search?: string;
   onSearchChange?: (val: string) => void;
   status?: string;
   onStatusChange?: (val: string) => void;
+  campaignFilter?: string;
+  onCampaignFilterChange?: (val: string) => void;
+  availableCampaigns?: Array<{ id: string; name: string }>;
   priority?: string;
   onPriorityChange?: (val: string) => void;
   dncFilter?: 'all' | 'callable' | 'dnc';
@@ -25,6 +28,11 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
   onSearchChange,
   status = 'All',
   onStatusChange,
+  campaignFilter = 'All',
+  onCampaignFilterChange,
+  availableCampaigns = [],
+  priority = 'All',
+  onPriorityChange,
   dncFilter = 'all',
   onDncFilterChange,
   selectedTag = 'All',
@@ -39,129 +47,153 @@ export const LeadsFiltersBar: React.FC<LeadsFiltersBarProps> = ({
   const hasActiveFilters =
     search.trim() !== '' ||
     status !== 'All' ||
+    campaignFilter !== 'All' ||
+    priority !== 'All' ||
     dncFilter !== 'all' ||
     selectedTag !== 'All' ||
     source !== 'All';
 
   return (
-    <div className="rm-card flex flex-col gap-3 p-4">
-      {/* Primary Search & Core Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
-        {/* Search Field (5 cols) */}
-        <div className="lg:col-span-5 relative">
-          <Icon
-            name="search"
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-muted pointer-events-none"
-          />
+    <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Search Input */}
+        <div className="relative min-w-[240px] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-on-surface-muted" />
           <input
             value={search}
             onChange={(e) => onSearchChange?.(e.target.value)}
-            className="h-9 w-full rounded-md border border-border bg-input pl-9 pr-3 text-[13.5px] text-on-surface placeholder:text-on-surface-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
-            placeholder="Search leads by name, company, email, or phone..."
+            className="h-8 w-full rounded-md border border-border bg-input pl-8 pr-7 text-[13px] text-on-surface placeholder:text-on-surface-muted focus:border-primary focus:outline-none"
+            placeholder="Search by name, company, email, or phone..."
             type="text"
           />
           {search && (
             <button
               onClick={() => onSearchChange?.('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-on-surface-muted hover:text-on-surface"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-on-surface-muted hover:text-on-surface"
               type="button"
+              aria-label="Clear search"
             >
-              <Icon name="close" size={16} />
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
 
-        {/* Status Filter (2 cols) */}
-        <div className="lg:col-span-2 relative">
+        {/* Qualification / Status Filter */}
+        <div className="relative min-w-[155px]">
           <select
             value={status.toLowerCase()}
             onChange={(e) => onStatusChange?.(e.target.value === 'all' ? 'All' : e.target.value)}
-            className="w-full px-3 py-2 rounded-md bg-surface-elevated text-on-surface text-[14px] appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer border border-border"
+            aria-label="Filter by qualification status"
+            className="h-8 w-full cursor-pointer appearance-none rounded-md border border-border bg-surface-secondary pl-2.5 pr-7 text-[12.5px] font-medium text-on-surface focus:border-primary focus:outline-none"
           >
-            <option value="all">All Statuses</option>
+            <option value="all">All Qualifications</option>
             <option value="new">New</option>
             <option value="contacted">Contacted</option>
             <option value="needs-review">Needs Review</option>
             <option value="qualified">Qualified</option>
             <option value="converted">Meeting Booked</option>
-            <option value="unqualified">Unreachable</option>
+            <option value="unqualified">Unqualified</option>
             <option value="dnc">Do Not Call</option>
           </select>
-          <Icon
-            name="expand_more"
-            size={18}
-            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant"
-          />
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-on-surface-variant" />
         </div>
 
-        {/* DNC Filter (2 cols) */}
-        <div className="lg:col-span-2 relative">
+        {/* Campaign Filter */}
+        <div className="relative min-w-[165px]">
           <select
-            value={dncFilter}
-            onChange={(e) => onDncFilterChange?.(e.target.value as any)}
-            className="w-full px-3 py-2 rounded-md bg-surface-elevated text-on-surface text-[14px] appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary cursor-pointer border border-border"
+            value={campaignFilter}
+            onChange={(e) => onCampaignFilterChange?.(e.target.value)}
+            aria-label="Filter by campaign"
+            className="h-8 w-full cursor-pointer appearance-none rounded-md border border-border bg-surface-secondary pl-2.5 pr-7 text-[12.5px] font-medium text-on-surface focus:border-primary focus:outline-none"
           >
-            <option value="all">All Contacts</option>
-            <option value="callable">Callable Only</option>
-            <option value="dnc">DNC Excluded</option>
+            <option value="All">All Campaigns</option>
+            <option value="unassigned">Unassigned</option>
+            {availableCampaigns.map((camp) => (
+              <option key={camp.id} value={camp.id}>
+                {camp.name}
+              </option>
+            ))}
           </select>
-          <Icon
-            name="expand_more"
-            size={18}
-            className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant"
-          />
+          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-on-surface-variant" />
         </div>
 
-        {/* Actions (3 cols) */}
-        <div className="lg:col-span-3 flex items-center justify-end gap-2">
-          {hasActiveFilters && (
-            <button
-              onClick={onClearAll}
-              className="text-[13px] text-error hover:underline font-medium px-2 py-1"
-              type="button"
-            >
-              Clear Filters
-            </button>
-          )}
+        {/* More Filters Dropdown Toggle */}
+        <button
+          onClick={() => setShowMoreFilters(!showMoreFilters)}
+          className={`inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-medium transition-colors ${
+            showMoreFilters
+              ? 'border-primary/40 bg-sidebar-active text-primary'
+              : 'border-border bg-surface-secondary text-on-surface-variant hover:text-on-surface'
+          }`}
+          type="button"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <span>More Filters</span>
+        </button>
 
+        {hasActiveFilters && (
           <button
-            onClick={() => setShowMoreFilters(!showMoreFilters)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-md text-[13px] font-medium border transition-colors ${showMoreFilters
-              ? 'bg-surface-secondary text-on-surface border-border-strong'
-              : 'bg-surface-elevated text-on-surface-variant hover:text-on-surface border-border'
-              }`}
+            onClick={onClearAll}
+            className="h-8 px-2 text-[12px] font-medium text-on-surface-variant hover:text-on-surface hover:underline"
             type="button"
           >
-            <Icon name="tune" size={16} />
-            <span>More Filters</span>
+            Reset
           </button>
-        </div>
+        )}
       </div>
 
-      {/* Expanded Filters Drawer */}
+      {/* Expanded Secondary Filters */}
       {showMoreFilters && (
-        <div className="pt-3 border-t border-border grid grid-cols-1 sm:grid-cols-3 gap-3 text-[13px]">
+        <div className="grid grid-cols-1 gap-2.5 border-t border-border pt-2.5 text-[12px] sm:grid-cols-4">
           <div>
-            <label className="block text-on-surface-variant font-medium mb-1">Tag Filter</label>
+            <label className="mb-1 block text-[11px] font-medium text-on-surface-variant">Calling Eligibility</label>
+            <select
+              value={dncFilter}
+              onChange={(e) => onDncFilterChange?.(e.target.value as 'all' | 'callable' | 'dnc')}
+              className="h-8 w-full rounded-md border border-border bg-surface-secondary px-2.5 text-[12px] text-on-surface"
+            >
+              <option value="all">All Contacts</option>
+              <option value="callable">Callable Only</option>
+              <option value="dnc">Do Not Call Only</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-on-surface-variant">Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => onPriorityChange?.(e.target.value)}
+              className="h-8 w-full rounded-md border border-border bg-surface-secondary px-2.5 text-[12px] text-on-surface"
+            >
+              <option value="All">All Priorities</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[11px] font-medium text-on-surface-variant">Tag</label>
             <select
               value={selectedTag}
               onChange={(e) => onTagChange?.(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-md bg-surface-elevated border border-border text-on-surface"
+              className="h-8 w-full rounded-md border border-border bg-surface-secondary px-2.5 text-[12px] text-on-surface"
             >
               <option value="All">All Tags</option>
               {availableTags.map((tag) => (
-                <option key={tag} value={tag}>{tag}</option>
+                <option key={tag} value={tag}>
+                  {tag}
+                </option>
               ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-on-surface-variant font-medium mb-1">Lead Source</label>
+            <label className="mb-1 block text-[11px] font-medium text-on-surface-variant">Source</label>
             <select
               value={source}
               onChange={(e) => onSourceChange?.(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-md bg-surface-elevated border border-border text-on-surface"
+              className="h-8 w-full rounded-md border border-border bg-surface-secondary px-2.5 text-[12px] text-on-surface"
             >
               <option value="All">All Sources</option>
               <option value="CSV Import">CSV Import</option>

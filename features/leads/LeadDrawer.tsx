@@ -69,16 +69,20 @@ export interface LeadCallRecord {
 
 interface LeadDrawerProps {
   leadId: string | null;
+  initialEditMode?: boolean;
   onClose: () => void;
   onLeadUpdated: () => void;
   onInstantDial?: (lead: Lead) => void;
+  onRequestDelete?: (lead: Lead) => void;
 }
 
 export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   leadId,
+  initialEditMode = false,
   onClose,
   onLeadUpdated,
   onInstantDial,
+  onRequestDelete,
 }) => {
   const [lead, setLead] = useState<Lead | null>(null);
   const [notes, setNotes] = useState<HydratedLeadNote[]>([]);
@@ -90,6 +94,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
   const [drawerTab, setDrawerTab] = useState('overview');
@@ -108,6 +113,8 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     let isMounted = true;
     setIsLoading(true);
     setDrawerTab('overview');
+    setIsEditing(Boolean(initialEditMode));
+    setShowDeleteConfirm(false);
     setCallsLoaded(false);
     setLeadCalls([]);
     setEmailsLoaded(false);
@@ -143,7 +150,7 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [leadId]);
+  }, [leadId, initialEditMode]);
 
   useEffect(() => {
     if (!leadId || (drawerTab !== 'calls' && drawerTab !== 'intelligence') || callsLoaded) return;
@@ -222,25 +229,30 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
 
   const handleArchive = async () => {
     if (!lead) return;
-    if (
-      !confirm(
-        `Archive lead "${lead.name}"? This lead will be removed from active campaign queues and new dispatches while preserving historical call and email records.`
-      )
-    ) {
+    if (onRequestDelete) {
+      onRequestDelete(lead);
       return;
     }
+    setShowDeleteConfirm(true);
+  };
 
+  const executeConfirmedDelete = async () => {
+    if (!lead) return;
+    setIsSaving(true);
     try {
       const res = await authenticatedFetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
+        setShowDeleteConfirm(false);
         onLeadUpdated();
         onClose();
       } else {
-        setFeedback(data.error || 'Failed to archive lead');
+        setFeedback(data.error || 'Failed to delete lead');
       }
     } catch {
-      setFeedback('Failed to archive lead');
+      setFeedback('Failed to delete lead');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -441,10 +453,39 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               <button
                 type="button"
                 onClick={handleArchive}
-                className="p-1.5 rounded-lg bg-surface-container text-on-surface-variant hover:text-error border border-outline-variant/10 transition-colors"
-                title="Archive lead"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-error-surface text-error hover:bg-error hover:text-white border border-error/25 transition-colors text-xs font-medium"
+                title="Delete lead"
               >
-                <Icon name="archive" size={14} />
+                <Icon name="delete" size={14} />
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showDeleteConfirm && lead && (
+          <div className="mx-4 mt-3 rounded-lg border border-error/30 bg-error-surface p-3.5 text-xs flex flex-col gap-2.5 rm-fade">
+            <div className="font-semibold text-on-surface">
+              Delete &ldquo;{lead.name}&rdquo; ({lead.company || 'No company'})?
+            </div>
+            <p className="text-on-surface-variant leading-relaxed">
+              This lead will be removed from active CRM lists and excluded from future campaign queues. Historical call sessions, transcripts, and campaign logs will remain intact.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-3 py-1 rounded border border-border bg-surface text-on-surface font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={executeConfirmedDelete}
+                className="px-3 py-1 rounded bg-error text-white font-semibold"
+              >
+                {isSaving ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>
@@ -457,11 +498,10 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               onChange={setDrawerTab}
               items={[
                 { id: 'overview', label: 'Overview' },
+                { id: 'calls', label: 'Call History' },
                 { id: 'intelligence', label: 'AI Analysis' },
-                { id: 'calls', label: 'Calls' },
                 { id: 'emails', label: 'Emails' },
-                { id: 'activity', label: 'Activity' },
-                { id: 'notes', label: 'Notes' },
+                { id: 'activity', label: 'Campaign Activity' },
               ]}
             />
           </div>
@@ -774,20 +814,143 @@ export const LeadDrawer: React.FC<LeadDrawerProps> = ({
               )}
 
               {drawerTab === 'activity' && (
-                <div className="flex flex-col gap-space-xs p-space-md rounded-xl border border-border bg-surface-elevated">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                    Activity timeline
-                  </span>
-                  <div className="flex flex-col gap-2 pt-1">
-                    {notes.slice(0, 4).map((note) => (
-                      <div key={note.id} className="border-l-2 border-primary/30 pl-3 text-xs">
-                        <div className="font-medium text-on-surface">{note.author_name || 'Operator'} added a note</div>
-                        <div className="text-on-surface-variant">{note.content}</div>
+                <div className="flex flex-col gap-4">
+                  {/* Campaign & Callbacks Summary */}
+                  <div className="flex flex-col gap-2.5 p-4 rounded-xl border border-border bg-surface-elevated">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                      Campaign Enrollment &amp; Callbacks
+                    </span>
+                    <div className="grid grid-cols-2 gap-3 text-xs pt-1">
+                      <div>
+                        <span className="text-on-surface-variant block">Assigned Campaign</span>
+                        <span className="font-semibold text-on-surface">{lead.campaignName || 'Unassigned'}</span>
                       </div>
-                    ))}
-                    {notes.length === 0 && (
-                      <span className="text-xs text-on-surface-variant">No activity yet. Notes and call outcomes will appear here.</span>
+                      <div>
+                        <span className="text-on-surface-variant block">Call Attempts</span>
+                        <span className="font-semibold text-on-surface">
+                          {lead.attempts ?? 0} of {lead.maxAttempts ?? 3}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant block">Last Outcome</span>
+                        <span className="font-medium text-on-surface">{lead.lastOutcome || 'Not contacted'}</span>
+                      </div>
+                      <div>
+                        <span className="text-on-surface-variant block">Email Status</span>
+                        <span className="font-medium text-on-surface capitalize">{lead.emailDeliveryStatus || 'None'}</span>
+                      </div>
+                    </div>
+
+                    {leadCallbacks.length > 0 && (
+                      <div className="mt-2 pt-2.5 border-t border-border flex flex-col gap-1.5">
+                        <span className="text-xs font-semibold text-primary">
+                          Scheduled Callbacks ({leadCallbacks.length})
+                        </span>
+                        {leadCallbacks.map((cb: any) => (
+                          <div
+                            key={cb.id}
+                            className="p-2.5 rounded-lg bg-surface-secondary border border-border text-xs flex items-center justify-between gap-2"
+                          >
+                            <div>
+                              <div className="font-semibold text-on-surface">
+                                {new Date(cb.scheduled_at || cb.scheduled_for).toLocaleString()}
+                              </div>
+                              <div className="text-on-surface-variant">{cb.notes || 'Follow-up callback requested'}</div>
+                            </div>
+                            <Badge tone={cb.status === 'completed' ? 'success' : 'warning'}>
+                              {cb.status || 'pending'}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
                     )}
+                  </div>
+
+                  {/* Notes & Tags Section inside Campaign Activity */}
+                  <div className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-surface-elevated">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
+                      Notes &amp; Tags
+                    </span>
+
+                    <div>
+                      <label className="text-xs text-on-surface-variant block mb-1">Tags</label>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {tags.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-secondary text-xs text-on-surface border border-border"
+                          >
+                            <span>{tag.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveTag(tag.id)}
+                              className="text-on-surface-variant hover:text-error ml-0.5"
+                              title="Remove tag"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                        {tags.length === 0 && (
+                          <span className="text-xs text-on-surface-muted">No tags assigned</span>
+                        )}
+                      </div>
+                      <form onSubmit={handleAddTag} className="flex gap-2">
+                        <input
+                          value={newTag}
+                          onChange={(e) => setNewTag(e.target.value)}
+                          placeholder="Add tag..."
+                          className="flex-1 px-2.5 py-1 rounded-md bg-input text-xs text-on-surface border border-border"
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1 rounded-md bg-surface-secondary hover:bg-surface text-xs text-on-surface font-medium border border-border"
+                        >
+                          Add
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="pt-2 border-t border-border">
+                      <label className="text-xs text-on-surface-variant block mb-1">Notes ({notes.length})</label>
+                      <form onSubmit={handleAddNote} className="flex flex-col gap-2 mb-3">
+                        <textarea
+                          rows={2}
+                          value={newNote}
+                          onChange={(e) => setNewNote(e.target.value)}
+                          placeholder="Add an operational note..."
+                          className="w-full px-2.5 py-1.5 rounded-md bg-input text-xs text-on-surface border border-border"
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            type="submit"
+                            className="px-3 py-1 rounded-md bg-primary text-primary-foreground text-xs font-semibold"
+                          >
+                            Save Note
+                          </button>
+                        </div>
+                      </form>
+
+                      <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                        {notes.map((note) => (
+                          <div
+                            key={note.id}
+                            className="p-2.5 rounded-lg bg-surface-secondary text-xs border border-border"
+                          >
+                            <div className="flex items-center justify-between text-on-surface-variant mb-1">
+                              <span className="font-semibold text-on-surface">{note.author_name || 'Operator'}</span>
+                              <span className="font-mono text-[10px]">
+                                {new Date(note.created_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <p className="text-on-surface whitespace-pre-wrap">{note.content}</p>
+                          </div>
+                        ))}
+                        {notes.length === 0 && (
+                          <span className="text-xs text-on-surface-muted">No notes recorded yet.</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

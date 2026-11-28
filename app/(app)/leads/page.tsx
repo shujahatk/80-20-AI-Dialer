@@ -8,6 +8,7 @@ import { LeadsFiltersBar } from '@/features/leads/LeadsFiltersBar';
 import { BulkSelectionBanner } from '@/features/leads/BulkSelectionBanner';
 import { LeadsTable } from '@/features/leads/LeadsTable';
 import { LeadsKanban } from '@/features/leads/LeadsKanban';
+import { DeleteLeadModal } from '@/features/leads/DeleteLeadModal';
 import { Tabs } from '@/components/ui/tabs';
 import { Toast } from '@/components/ui/toast';
 import { PageShell } from '@/components/ui/page-shell';
@@ -24,12 +25,10 @@ function LeadsContent() {
   const initialStatusParam = searchParams.get('status');
   const initialSearchParam = searchParams.get('search');
 
-  // If action is import, show dedicated CSV upload interface
   if (actionParam === 'import') {
     return <CsvImportStudio />;
   }
 
-  // If action is new, show dedicated Add Lead interface
   if (actionParam === 'new') {
     return <AddLeadStudio />;
   }
@@ -71,6 +70,8 @@ function LeadsMainTable({
       ? 'contacted'
       : 'All'
   );
+  const [campaignFilter, setCampaignFilter] = useState('All');
+  const [availableCampaigns, setAvailableCampaigns] = useState<Array<{ id: string; name: string }>>([]);
   const [priority, setPriority] = useState('All');
   const [dncFilter, setDncFilter] = useState<'all' | 'callable' | 'dnc'>(
     initialStatus === 'dnc' ? 'dnc' : 'all'
@@ -79,13 +80,16 @@ function LeadsMainTable({
   const [source, setSource] = useState('All');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedLeadIdForDrawer, setSelectedLeadIdForDrawer] = useState<string | null>(null);
+  const [drawerInitialEditMode, setDrawerInitialEditMode] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [view, setView] = useState<'table' | 'board'>('table');
 
-  // Synchronize state when URL query parameters change (e.g. navigation from sidebar or breadcrumb)
   useEffect(() => {
     setStatus(
       initialStatus === 'qualified'
@@ -100,18 +104,30 @@ function LeadsMainTable({
     setCurrentPage(1);
   }, [initialStatus, initialSearch]);
 
-  // Debounce search by 300ms to eliminate typing query storms
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
       setCurrentPage(1);
-    }, 300);
+    }, 280);
     return () => clearTimeout(timer);
   }, [search]);
 
+  useEffect(() => {
+    authenticatedFetch('/api/campaigns?limit=50')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success && Array.isArray(json.data)) {
+          setAvailableCampaigns(
+            json.data.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }))
+          );
+        }
+      })
+      .catch(() => null);
+  }, []);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const fetchLeads = useCallback(async () => {
@@ -134,7 +150,7 @@ function LeadsMainTable({
         setLeads([]);
         setTotalCount(0);
         setTotalPages(1);
-        showToast('Session expired or unauthorized. Redirecting to sign in...');
+        showToast('Session expired. Redirecting to sign in...');
         router.push('/login?redirectTo=/leads');
         return;
       }
@@ -142,9 +158,9 @@ function LeadsMainTable({
       const data = await res.json();
 
       if (data.success) {
-        setLeads(data.data);
-        setTotalCount(data.totalCount);
-        setTotalPages(data.totalPages);
+        setLeads(Array.isArray(data.data) ? data.data : []);
+        setTotalCount(Number(data.totalCount) || 0);
+        setTotalPages(Number(data.totalPages) || 1);
         if (data.metrics) {
           setMetrics(data.metrics);
         }
@@ -156,12 +172,11 @@ function LeadsMainTable({
           showToast(`Error: ${data.error}`);
         }
       }
-    } catch (err: unknown) {
-      console.error('Failed to load leads from server:', err);
+    } catch {
       setLeads([]);
       setTotalCount(0);
       setTotalPages(1);
-      showToast('Could not connect to CRM backend. Please check network and refresh.');
+      showToast('Could not connect to CRM backend. Please refresh.');
     } finally {
       setIsLoading(false);
     }
@@ -175,6 +190,7 @@ function LeadsMainTable({
     setSearch('');
     setDebouncedSearch('');
     setStatus('All');
+    setCampaignFilter('All');
     setPriority('All');
     setDncFilter('all');
     setSelectedTag('All');
@@ -187,35 +203,94 @@ function LeadsMainTable({
     new Set(leads.flatMap((l) => l.tags || []))
   ).filter(Boolean);
 
-  const displayedLeads = selectedTag !== 'All'
-    ? leads.filter((l) => (l.tags || []).includes(selectedTag))
-    : leads;
+  const displayedLeads = leads.filter((l) => {
+    if (selectedTag !== 'All' && !(l.tags || []).includes(selectedTag)) return false;
+    if (campaignFilter !== 'All') {
+      if (campaignFilter === 'unassigned') {
+        if (l.campaignId) return false;
+      } else if (l.campaignId !== campaignFilter) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   const handleSelectLead = (id: string, selected: boolean) => {
     setSelectedIds((prev) => (selected ? [...prev, id] : prev.filter((i) => i !== id)));
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.length === leads.length) {
+    if (selectedIds.length === displayedLeads.length && displayedLeads.length > 0) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(leads.map((l) => l.id));
+      setSelectedIds(displayedLeads.map((l) => l.id));
     }
   };
 
   const handleInstantDial = (lead: Lead) => {
-    if (lead.status === 'dnc' || (lead as { is_dnc?: boolean }).is_dnc) {
-      showToast(`Cannot dial ${lead.name}: Prospect is strictly marked Do-Not-Call (DNC).`);
+    if (lead.status === 'dnc' || lead.isDnc) {
+      showToast(`Cannot dial ${lead.name}: Prospect is marked Do-Not-Call (DNC).`);
       return;
     }
-    showToast(`Connecting autonomous dialer for ${lead.name}...`);
+    showToast(`Opening dialer workstation for ${lead.name}...`);
     router.push(`/workstation?leadId=${encodeURIComponent(lead.id)}&dial=${encodeURIComponent(lead.phone)}&autodial=true`);
+  };
+
+  const handleConfirmSingleDelete = async () => {
+    if (!leadToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await authenticatedFetch(`/api/leads/${leadToDelete.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Deleted "${leadToDelete.name}" from active CRM.`);
+        setSelectedIds((prev) => prev.filter((id) => id !== leadToDelete.id));
+        if (selectedLeadIdForDrawer === leadToDelete.id) {
+          setSelectedLeadIdForDrawer(null);
+        }
+        setLeadToDelete(null);
+        await fetchLeads();
+      } else {
+        showToast(data.error || 'Could not delete lead.');
+      }
+    } catch {
+      showToast('Failed to delete lead.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setIsDeleting(true);
+    try {
+      const res = await authenticatedFetch('/api/leads/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          leadIds: selectedIds,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const count = selectedIds.length;
+        showToast(`Deleted ${count} ${count === 1 ? 'lead' : 'leads'} from active CRM.`);
+        setSelectedIds([]);
+        setIsBulkDeleteModalOpen(false);
+        await fetchLeads();
+      } else {
+        showToast(data.error || 'Could not delete selected leads.');
+      }
+    } catch {
+      showToast('Failed to perform bulk delete operation.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleBulkDnc = async () => {
     if (selectedIds.length === 0) return;
-    if (!confirm(`Mark ${selectedIds.length} selected leads as Do-Not-Call (DNC)?`)) return;
-
     try {
       const res = await authenticatedFetch('/api/leads/bulk', {
         method: 'POST',
@@ -229,64 +304,14 @@ function LeadsMainTable({
 
       const data = await res.json();
       if (data.success) {
-        showToast(`Marked ${selectedIds.length} leads as DNC restricted.`);
+        showToast(`Marked ${selectedIds.length} leads as Do Not Call.`);
         setSelectedIds([]);
         fetchLeads();
       } else {
-        showToast(data.error || 'Failed to perform bulk DNC operation');
+        showToast(data.error || 'Failed to update DNC status');
       }
     } catch {
       showToast('Failed to perform bulk DNC operation');
-    }
-  };
-
-  const handleSingleArchive = async (lead: Lead) => {
-    if (
-      !confirm(
-        `Archive lead "${lead.name}" (${lead.company})? This lead will be removed from active campaign queues while preserving historical call and email records.`
-      )
-    ) {
-      return;
-    }
-
-    try {
-      const res = await authenticatedFetch(`/api/leads/${lead.id}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        showToast(`Archived "${lead.name}" and removed from active queues.`);
-        fetchLeads();
-      } else {
-        showToast(data.error || 'Could not archive lead.');
-      }
-    } catch {
-      showToast('Failed to archive lead.');
-    }
-  };
-
-  const handleBulkArchive = async () => {
-    if (selectedIds.length === 0) return;
-    if (!confirm(`Archive ${selectedIds.length} selected leads? They will be safely hidden from active queues.`)) return;
-
-    try {
-      const res = await authenticatedFetch('/api/leads/bulk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'archive',
-          leadIds: selectedIds,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        showToast(`Safely archived ${selectedIds.length} leads.`);
-        setSelectedIds([]);
-        fetchLeads();
-      } else {
-        showToast(data.error || 'Failed to perform bulk archive operation');
-      }
-    } catch {
-      showToast('Failed to perform bulk archive operation');
     }
   };
 
@@ -303,7 +328,7 @@ function LeadsMainTable({
       });
       const data = await res.json();
       if (data.success) {
-        showToast('Lead stage updated');
+        showToast('Lead qualification stage updated');
         fetchLeads();
       }
     } catch {
@@ -313,8 +338,8 @@ function LeadsMainTable({
 
   return (
     <PageShell wide>
-      <div className="relative flex flex-col gap-5">
-        {/* Metric & Action Strip */}
+      <div className="relative flex flex-col gap-3.5">
+        {/* Header & Compact Summary Row */}
         <LeadsHeaderStrip
           metrics={metrics}
           onOpenImport={() => setIsImportOpen(true)}
@@ -324,7 +349,7 @@ function LeadsMainTable({
           isRefreshing={isLoading}
         />
 
-        {/* Advanced Filter & Control Bar */}
+        {/* Compact Search & Filter Toolbar */}
         <LeadsFiltersBar
           search={search}
           onSearchChange={(val) => {
@@ -336,6 +361,12 @@ function LeadsMainTable({
             setStatus(val);
             setCurrentPage(1);
           }}
+          campaignFilter={campaignFilter}
+          onCampaignFilterChange={(val) => {
+            setCampaignFilter(val);
+            setCurrentPage(1);
+          }}
+          availableCampaigns={availableCampaigns}
           priority={priority}
           onPriorityChange={(val) => {
             setPriority(val);
@@ -365,21 +396,22 @@ function LeadsMainTable({
             value={view}
             onChange={(id) => setView(id as 'table' | 'board')}
             items={[
-              { id: 'table', label: 'Table' },
-              { id: 'board', label: 'Board' },
+              { id: 'table', label: 'Table View' },
+              { id: 'board', label: 'Pipeline Board' },
             ]}
           />
+          <span className="text-[12px] text-on-surface-variant">
+            {displayedLeads.length} shown · {totalCount} total leads
+          </span>
         </div>
 
-        {/* Bulk Selection Banner */}
+        {/* Bulk Selection Action Bar */}
         <BulkSelectionBanner
           selectedCount={selectedIds.length}
           totalMatched={totalCount}
-          onDialSelected={() => {
-            showToast(`Queuing ${selectedIds.length} leads into AI dialer queue...`);
-          }}
           onMarkDnc={handleBulkDnc}
-          onArchive={handleBulkArchive}
+          onDeleteSelected={() => setIsBulkDeleteModalOpen(true)}
+          onClearSelection={() => setSelectedIds([])}
           onExport={handleExportCsv}
         />
 
@@ -387,7 +419,10 @@ function LeadsMainTable({
           <LeadsKanban
             leads={displayedLeads}
             isLoading={isLoading}
-            onViewLead={(id) => setSelectedLeadIdForDrawer(id)}
+            onViewLead={(id) => {
+              setDrawerInitialEditMode(false);
+              setSelectedLeadIdForDrawer(id);
+            }}
             onStatusChange={handleKanbanStatus}
           />
         ) : (
@@ -397,8 +432,16 @@ function LeadsMainTable({
             onSelectLead={handleSelectLead}
             onSelectAll={handleSelectAll}
             onInstantDial={handleInstantDial}
-            onViewLead={(id) => setSelectedLeadIdForDrawer(id)}
-            onArchiveLead={handleSingleArchive}
+            onViewLead={(id) => {
+              setDrawerInitialEditMode(false);
+              setSelectedLeadIdForDrawer(id);
+            }}
+            onEditLead={(lead) => {
+              setDrawerInitialEditMode(true);
+              setSelectedLeadIdForDrawer(lead.id);
+            }}
+            onDeleteLead={(lead) => setLeadToDelete(lead)}
+            onArchiveLead={(lead) => setLeadToDelete(lead)}
             currentPage={currentPage}
             totalPages={totalPages}
             totalCount={totalCount}
@@ -412,12 +455,39 @@ function LeadsMainTable({
           />
         )}
 
-        {/* Slide-over Detail Drawer */}
+        {/* Lead Detail & Edit Drawer */}
         <LeadDrawer
           leadId={selectedLeadIdForDrawer}
-          onClose={() => setSelectedLeadIdForDrawer(null)}
+          initialEditMode={drawerInitialEditMode}
+          onClose={() => {
+            setSelectedLeadIdForDrawer(null);
+            setDrawerInitialEditMode(false);
+          }}
           onLeadUpdated={() => fetchLeads()}
           onInstantDial={handleInstantDial}
+          onRequestDelete={(lead) => setLeadToDelete(lead)}
+        />
+
+        {/* Individual Delete Confirmation Modal */}
+        <DeleteLeadModal
+          isOpen={Boolean(leadToDelete)}
+          lead={leadToDelete}
+          isDeleting={isDeleting}
+          onClose={() => {
+            if (!isDeleting) setLeadToDelete(null);
+          }}
+          onConfirm={handleConfirmSingleDelete}
+        />
+
+        {/* Bulk Delete Confirmation Modal */}
+        <DeleteLeadModal
+          isOpen={isBulkDeleteModalOpen}
+          bulkCount={selectedIds.length}
+          isDeleting={isDeleting}
+          onClose={() => {
+            if (!isDeleting) setIsBulkDeleteModalOpen(false);
+          }}
+          onConfirm={handleConfirmBulkDelete}
         />
 
         {/* Add Lead Modal */}
@@ -425,18 +495,18 @@ function LeadsMainTable({
           isOpen={isAddLeadOpen}
           onClose={() => setIsAddLeadOpen(false)}
           onLeadCreated={() => {
-            showToast('Lead record created successfully');
+            showToast('Lead created successfully');
             fetchLeads();
           }}
         />
 
-        {/* Interactive CSV Import Studio Modal */}
+        {/* CSV Import Modal */}
         <CsvImportModal
           isOpen={isImportOpen}
           onClose={() => setIsImportOpen(false)}
           onImportComplete={(count) => {
             if (count > 0) {
-              showToast(`Successfully imported ${count} leads into CRM.`);
+              showToast(`Imported ${count} leads into CRM.`);
             } else {
               showToast('Import completed: No new leads added (duplicates or invalid rows).');
             }
@@ -452,7 +522,7 @@ function LeadsMainTable({
 
 export default function LeadsPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-sm text-on-surface-variant">Loading Leads Workspace...</div>}>
+    <Suspense fallback={<div className="p-6 text-sm text-on-surface-variant">Loading Leads...</div>}>
       <LeadsContent />
     </Suspense>
   );

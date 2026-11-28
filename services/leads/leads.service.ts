@@ -653,48 +653,29 @@ export class LeadsService {
     return this.toDomain(row);
   }
 
+  async deleteLead(id: string, organizationId?: string, actorId?: string): Promise<Lead> {
+    return this.archiveLead(id, organizationId, actorId);
+  }
+
   async archiveLead(id: string, organizationId?: string, actorId?: string): Promise<Lead> {
     const orgId = organizationId ?? this.defaultOrgId;
 
-    if (this.isMockDevMode) {
-      const store = getDevStore();
-      const row = store.leads.find((l) => l.id === id);
-      if (!row) throw new Error('Lead not found');
-      const activeCall = store.calls.find(
-        (c) =>
-          c.lead_id === id &&
-          ['queued', 'in_progress', 'ringing', 'initiated', 'registered'].includes(String(c.status))
-      );
-      if (activeCall) {
-        throw new Error(
-          `Cannot delete or archive lead "${row.full_name || row.name}" while a live call is in progress.`
-        );
-      }
-      row.is_archived = true;
-      row.archived_at = new Date().toISOString();
-      for (const cl of store.campaignLeads) {
-        if (cl.lead_id === id && cl.state !== 'completed') {
-          cl.state = 'abandoned' as any;
-        }
-      }
-      const tags = (store.tags[id] || []).map((t) => t.name);
-      return this.toDomain(row, tags);
-    }
-
     // 1. Block deletion/archiving if an active call is currently in progress (Part 8)
     try {
-      const { data: activeCalls } = await this.supabase
-        .from('call_sessions')
-        .select('id, status')
-        .eq('organization_id', orgId)
-        .eq('lead_id', id)
-        .in('status', ['queued', 'in_progress', 'ringing', 'initiated', 'registered'] as any)
-        .limit(1);
+      if (this.supabase && typeof this.supabase.from === 'function') {
+        const { data: activeCalls } = await this.supabase
+          .from('call_sessions')
+          .select('id, status')
+          .eq('organization_id', orgId)
+          .eq('lead_id', id)
+          .in('status', ['queued', 'in_progress', 'ringing', 'initiated', 'registered'] as any)
+          .limit(1);
 
-      if (activeCalls && activeCalls.length > 0) {
-        throw new Error(
-          `Cannot delete or archive lead while a live call is in progress (Call ID: ${activeCalls[0].id}).`
-        );
+        if (activeCalls && activeCalls.length > 0) {
+          throw new Error(
+            `Cannot delete or archive lead while a live call is in progress (Call ID: ${activeCalls[0].id}).`
+          );
+        }
       }
     } catch (err) {
       if (err instanceof Error && err.message.includes('while a live call is in progress')) {
@@ -704,19 +685,47 @@ export class LeadsService {
 
     // 2. Cancel any pending/queued campaign enrollment so archived lead is never dialed
     try {
-      await this.supabase
-        .from('campaign_enrollments')
-        .update({
-          state: 'abandoned',
-          next_attempt_at: null,
-          claimed_by: null,
-          claimed_at: null,
-          updated_at: new Date().toISOString(),
-        } as any)
-        .eq('organization_id', orgId)
-        .eq('lead_id', id)
-        .in('state', ['queued', 'calling']);
+      if (this.supabase && typeof this.supabase.from === 'function') {
+        await this.supabase
+          .from('campaign_enrollments')
+          .update({
+            state: 'abandoned',
+            next_attempt_at: null,
+            claimed_by: null,
+            claimed_at: null,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .eq('organization_id', orgId)
+          .eq('lead_id', id)
+          .in('state', ['queued', 'calling']);
+      }
     } catch { }
+
+    if (this.isMockDevMode) {
+      const store = getDevStore();
+      const row = store.leads.find((l) => l.id === id);
+      if (row) {
+        const activeCall = store.calls.find(
+          (c) =>
+            c.lead_id === id &&
+            ['queued', 'in_progress', 'ringing', 'initiated', 'registered'].includes(String(c.status))
+        );
+        if (activeCall) {
+          throw new Error(
+            `Cannot delete or archive lead "${row.full_name || row.name}" while a live call is in progress.`
+          );
+        }
+        row.is_archived = true;
+        row.archived_at = new Date().toISOString();
+        for (const cl of store.campaignLeads) {
+          if (cl.lead_id === id && cl.state !== 'completed') {
+            cl.state = 'abandoned' as any;
+          }
+        }
+        const tags = (store.tags[id] || []).map((t) => t.name);
+        return this.toDomain(row, tags);
+      }
+    }
 
     // 3. Soft-delete (archive) lead while preserving historical call & email records
     const row = await this.repo.archive(id, orgId);
@@ -801,48 +810,105 @@ export class LeadsService {
     const validated = leadBulkActionSchema.parse(input);
     const orgId = organizationId ?? this.defaultOrgId;
 
+    if (validated.action === 'archive' || validated.action === 'delete') {
+      // 1. Check active calls in Supabase before bulk deletion
+      try {
+        if (this.supabase && typeof this.supabase.from === 'function') {
+          const { data: activeCalls } = await this.supabase
+            .from('call_sessions')
+            .select('id, lead_id, status')
+            .eq('organization_id', orgId)
+            .in('lead_id', validated.leadIds)
+            .in('status', ['queued', 'in_progress', 'ringing', 'initiated', 'registered'] as any)
+            .limit(1);
+
+          if (activeCalls && activeCalls.length > 0) {
+            throw new Error(
+              `Cannot delete selected leads while a live call is in progress (Call ID: ${activeCalls[0].id}).`
+            );
+          }
+
+          await this.supabase
+            .from('campaign_enrollments')
+            .update({
+              state: 'abandoned',
+              next_attempt_at: null,
+              claimed_by: null,
+              claimed_at: null,
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq('organization_id', orgId)
+            .in('lead_id', validated.leadIds)
+            .in('state', ['queued', 'calling']);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('while a live call is in progress')) {
+          throw err;
+        }
+      }
+    }
+
     if (this.isMockDevMode) {
       const store = getDevStore();
-      const targetLeads = store.leads.filter((l) => validated.leadIds.includes(l.id));
+      const targetLeads = store.leads.filter((l) => validated.leadIds.includes(l.id) && l.organization_id === orgId);
 
-      switch (validated.action) {
-        case 'dnc':
-          targetLeads.forEach((l) => {
-            l.is_dnc = true;
-            l.dnc_reason = validated.dncReason ?? 'Bulk DNC Action';
-            l.status = 'dnc';
-          });
-          break;
-        case 'status':
-          if (validated.status) {
+      if (targetLeads.length > 0) {
+        switch (validated.action) {
+          case 'dnc':
             targetLeads.forEach((l) => {
-              l.status = validated.status as LeadStatusDb;
+              l.is_dnc = true;
+              l.dnc_reason = validated.dncReason ?? 'Bulk DNC Action';
+              l.status = 'dnc';
             });
-          }
-          break;
-        case 'archive':
-          targetLeads.forEach((l) => {
-            l.is_archived = true;
-            l.archived_at = new Date().toISOString();
-          });
-          break;
-        case 'tag':
-          if (validated.tagName) {
+            break;
+          case 'status':
+            if (validated.status) {
+              targetLeads.forEach((l) => {
+                l.status = validated.status as LeadStatusDb;
+              });
+            }
+            break;
+          case 'archive':
+          case 'delete': {
+            const activeCall = store.calls.find(
+              (c) =>
+                validated.leadIds.includes(c.lead_id || '') &&
+                ['queued', 'in_progress', 'ringing', 'initiated', 'registered'].includes(String(c.status))
+            );
+            if (activeCall) {
+              throw new Error(
+                `Cannot delete selected leads while a live call is in progress (Call ID: ${activeCall.id}).`
+              );
+            }
             targetLeads.forEach((l) => {
-              if (!store.tags[l.id]) store.tags[l.id] = [];
-              if (!store.tags[l.id].some((t) => t.name.toLowerCase() === validated.tagName!.toLowerCase())) {
-                store.tags[l.id].push({
-                  id: `tag_${Date.now()}_${l.id}`,
-                  organization_id: orgId,
-                  name: validated.tagName!,
-                  color: '#0284c7',
-                });
+              l.is_archived = true;
+              l.archived_at = new Date().toISOString();
+            });
+            for (const cl of store.campaignLeads) {
+              if (validated.leadIds.includes(cl.lead_id) && cl.state !== 'completed') {
+                cl.state = 'abandoned' as any;
               }
-            });
+            }
+            break;
           }
-          break;
+          case 'tag':
+            if (validated.tagName) {
+              targetLeads.forEach((l) => {
+                if (!store.tags[l.id]) store.tags[l.id] = [];
+                if (!store.tags[l.id].some((t) => t.name.toLowerCase() === validated.tagName!.toLowerCase())) {
+                  store.tags[l.id].push({
+                    id: `tag_${Date.now()}_${l.id}`,
+                    organization_id: orgId,
+                    name: validated.tagName!,
+                    color: '#0284c7',
+                  });
+                }
+              });
+            }
+            break;
+        }
+        return { affected: targetLeads.length };
       }
-      return { affected: targetLeads.length };
     }
 
     switch (validated.action) {
@@ -855,6 +921,7 @@ export class LeadsService {
         }
         break;
       case 'archive':
+      case 'delete':
         await this.repo.bulkArchive(validated.leadIds, orgId);
         break;
       case 'tag':

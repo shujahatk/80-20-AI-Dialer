@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { Icon } from '@/lib/ui/icons';
+import { Plus } from 'lucide-react';
 
 interface CampaignsHeaderProps {
-  onOpenPacingModal: () => void;
+  onOpenPacingModal?: () => void;
   onCreateCampaign?: () => void;
   metrics?: {
     running: number;
@@ -15,7 +15,6 @@ interface CampaignsHeaderProps {
 }
 
 export const CampaignsHeader: React.FC<CampaignsHeaderProps> = ({
-  onOpenPacingModal,
   onCreateCampaign,
   metrics,
 }) => {
@@ -24,58 +23,50 @@ export const CampaignsHeader: React.FC<CampaignsHeaderProps> = ({
   const pausedCount = metrics?.paused ?? 0;
   const completedCount = metrics?.completed ?? 0;
 
+  const summaryItems = [
+    { label: 'Running', value: runningCount, accent: 'text-primary' },
+    { label: 'Scheduled', value: scheduledCount, accent: 'text-on-surface' },
+    { label: 'Paused', value: pausedCount, accent: 'text-warning' },
+    { label: 'Completed', value: completedCount, accent: 'text-on-surface' },
+  ];
+
   return (
-    <div className="flex flex-col gap-5">
-      {/* Title & Actions */}
+    <div className="flex flex-col gap-3">
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-3">
-            <h1 className="page-heading">
-              Calling Campaigns
-            </h1>
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="page-heading">Campaigns</h1>
             {runningCount > 0 && (
-              <span className="rounded border border-success/20 bg-success-surface px-2.5 py-0.5 text-[12px] font-semibold text-success">
-                {runningCount} running
+              <span className="rounded border border-primary/25 bg-accent-surface px-2 py-0.5 text-[11px] font-semibold text-primary">
+                {runningCount} Active
               </span>
             )}
           </div>
           <p className="page-description">
-            Configure outbound calling schedules, lead batches, and persona assignments.
+            Create, schedule, and monitor autonomous Retell calling campaigns, Claude qualification, and Resend email follow-ups.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            onClick={onOpenPacingModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-surface hover:bg-surface-secondary text-on-surface text-[13px] font-semibold transition-colors border border-border shadow-sm"
-            type="button"
-          >
-            <Icon name="speed" size={16} className="text-primary" />
-            <span>Calling Schedule &amp; Rate</span>
-          </button>
-
+        <div className="flex items-center gap-2">
           <button
             onClick={onCreateCampaign}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-primary text-on-primary hover:bg-primary-hover text-[13px] font-semibold transition-colors shadow-sm"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3.5 text-[12.5px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
             type="button"
           >
-            <Icon name="add_call" size={16} />
+            <Plus className="h-3.5 w-3.5" />
             <span>Create Campaign</span>
           </button>
         </div>
       </div>
 
-      {/* 4 Clean Business Metric Cards */}
-      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-black/[0.07] bg-white dark:border-white/[0.08] dark:bg-[#121614] md:grid-cols-4">
-        {[
-          ['Running', runningCount],
-          ['Scheduled', scheduledCount],
-          ['Paused', pausedCount],
-          ['Completed', completedCount],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="p-4 md:border-r md:border-black/[0.06] md:last:border-r-0 dark:md:border-white/[0.06]">
-            <span className="text-[11.5px] font-medium text-neutral-500 dark:text-neutral-400">{label}</span>
-            <div className="mt-1 font-mono text-[22px] font-medium tabular-nums text-[#1c3128] dark:text-neutral-50">{value}</div>
+      {/* Compact Summary Row */}
+      <div className="grid grid-cols-2 divide-y divide-border overflow-hidden rounded-lg border border-border bg-surface sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+        {summaryItems.map((item) => (
+          <div key={item.label} className="flex items-baseline justify-between px-4 py-2.5">
+            <span className="text-[12px] font-medium text-on-surface-variant">{item.label}</span>
+            <span className={`font-mono text-[16px] font-semibold tabular-nums ${item.accent}`}>
+              {item.value}
+            </span>
           </div>
         ))}
       </div>

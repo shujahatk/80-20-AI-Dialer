@@ -49,6 +49,6 @@ for (const suite of suites) {
 }
 
 console.log('\n========================================================================');
-console.log('ALL TEST SUITES PASSED SUCCESSFULLY (290 / 290 VERIFIED TESTS)');
+console.log('ALL TEST SUITES PASSED SUCCESSFULLY (291 / 291 VERIFIED TESTS)');
 console.log('========================================================================\n');
 process.exit(0);

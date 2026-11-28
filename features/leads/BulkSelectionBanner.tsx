@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Icon } from '@/lib/ui/icons';
+import { Trash2, PhoneOff, Download, X } from 'lucide-react';
 
 interface BulkSelectionBannerProps {
   selectedCount?: number;
@@ -11,79 +11,85 @@ interface BulkSelectionBannerProps {
   onExport?: () => void;
   onMarkDnc?: () => void;
   onArchive?: () => void;
+  onDeleteSelected?: () => void;
+  onClearSelection?: () => void;
   onSelectAllMatched?: () => void;
 }
 
 export const BulkSelectionBanner: React.FC<BulkSelectionBannerProps> = ({
   selectedCount = 0,
   totalMatched = 0,
-  onDialSelected,
   onExport,
   onMarkDnc,
   onArchive,
+  onDeleteSelected,
+  onClearSelection,
   onSelectAllMatched,
 }) => {
   if (selectedCount === 0) return null;
 
+  const handleBulkDelete = onDeleteSelected || onArchive;
+
   return (
-    <div className="px-5 py-3 rounded-xl bg-accent-surface flex flex-wrap items-center justify-between gap-4 border border-primary/20 shadow-sm animate-in fade-in">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-accent-surface px-4 py-2.5 text-[12.5px] rm-fade">
       <div className="flex items-center gap-3">
-        <span className="text-[14px] text-on-surface">
-          <strong className="font-bold text-primary">{selectedCount} leads</strong> selected
+        <span className="font-medium text-on-surface">
+          <strong className="font-semibold text-primary">{selectedCount}</strong>{' '}
+          {selectedCount === 1 ? 'lead' : 'leads'} selected
         </span>
         {totalMatched > selectedCount && onSelectAllMatched && (
           <button
             onClick={onSelectAllMatched}
-            className="text-primary text-[13px] font-medium underline hover:text-primary-hover"
+            className="text-[12px] font-medium text-primary underline hover:text-primary-hover"
             type="button"
           >
-            Select all {totalMatched.toLocaleString()} matched
+            Select all {totalMatched.toLocaleString()}
+          </button>
+        )}
+        {onClearSelection && (
+          <button
+            onClick={onClearSelection}
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-on-surface-variant hover:text-on-surface"
+            type="button"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span>Clear selection</span>
           </button>
         )}
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        {onDialSelected && (
-          <button
-            onClick={onDialSelected}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary-hover transition-colors shadow-sm"
-            type="button"
-          >
-            <Icon name="phone_in_talk" size={16} />
-            <span>Dial Selected</span>
-          </button>
-        )}
-
+      <div className="flex flex-wrap items-center gap-2">
         {onExport && (
           <button
             onClick={onExport}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-surface text-on-surface text-[13px] font-medium hover:bg-surface-elevated border border-border"
+            className="inline-flex h-7.5 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[12px] font-medium text-on-surface hover:bg-surface-secondary"
             type="button"
           >
-            <Icon name="download" size={16} />
-            <span>Export CSV</span>
+            <Download className="h-3.5 w-3.5" />
+            <span>Export</span>
           </button>
         )}
 
         {onMarkDnc && (
           <button
             onClick={onMarkDnc}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-error/15 text-error text-[13px] font-semibold hover:bg-error/25 border border-error/30"
+            className="inline-flex h-7.5 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1 text-[12px] font-medium text-on-surface hover:bg-surface-secondary"
             type="button"
           >
-            <Icon name="do_not_disturb_on" size={16} />
+            <PhoneOff className="h-3.5 w-3.5 text-warning" />
             <span>Mark DNC</span>
           </button>
         )}
 
-        {onArchive && (
+        {handleBulkDelete && (
           <button
-            onClick={onArchive}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md bg-surface-secondary text-on-surface-variant text-[13px] font-medium hover:bg-surface-elevated hover:text-on-surface border border-border"
+            onClick={handleBulkDelete}
+            title="Delete / Archive selected leads"
+            className="inline-flex h-7.5 items-center gap-1.5 rounded-md border border-error/30 bg-error-surface px-3 py-1 text-[12px] font-semibold text-error transition-colors hover:bg-error hover:text-white"
             type="button"
           >
-            <Icon name="archive" size={16} />
-            <span>Archive</span>
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Delete Selected ({selectedCount})</span>
           </button>
         )}
       </div>

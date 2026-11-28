@@ -93,51 +93,51 @@ html.dark,
 body.dark,
 [data-theme='dark'],
 html[data-theme='dark'] {
-  --background: #121614;
-  --surface: #1a201c;
-  --surface-secondary: #222a26;
-  --surface-elevated: #24302b;
+  --background: #111513;
+  --surface: #171c19;
+  --surface-secondary: #1d2420;
+  --surface-elevated: #212925;
 
-  --sidebar: #161c19;
-  --sidebar-hover: rgba(255, 255, 255, 0.05);
-  --sidebar-text: #eef3f0;
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --sidebar-active: rgba(126, 174, 160, 0.18);
+  --sidebar: #141917;
+  --sidebar-hover: rgba(126, 174, 160, 0.08);
+  --sidebar-text: #eef2ef;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-active: rgba(126, 174, 160, 0.14);
 
   --primary: #7eaea0;
-  --primary-hover: #93c0b2;
-  --primary-foreground: #10211c;
+  --primary-hover: #91bfb1;
+  --primary-foreground: #0e1d18;
 
-  --secondary: #6f9b8c;
-  --secondary-hover: #84b0a2;
-  --secondary-foreground: #10211c;
+  --secondary: #2f5d50;
+  --secondary-hover: #3b7061;
+  --secondary-foreground: #eef3f0;
 
   --accent: #7eaea0;
-  --accent-surface: #1c2c27;
+  --accent-surface: #1a2823;
 
-  --text-primary: #eef1ec;
-  --text-secondary: #b4bbb5;
-  --text-muted: #7f8882;
+  --text-primary: #f0f3f1;
+  --text-secondary: #a3aca6;
+  --text-muted: #6e7772;
 
-  --border: #33403a;
-  --border-strong: #496057;
+  --border: #26302b;
+  --border-strong: #384740;
 
-  --success: #86b094;
-  --success-surface: #16231b;
+  --success: #7eaea0;
+  --success-surface: #16241f;
 
   --warning: #c8ab74;
-  --warning-surface: #261f14;
+  --warning-surface: #251f14;
 
   --error: #d08a84;
-  --error-surface: #2a1817;
+  --error-surface: #281716;
 
   --info: #8aa3b0;
   --info-surface: #162026;
 
-  --card-bg: #1c2420;
-  --card-border: #3a4b44;
-  --input-bg: #1a201c;
-  --input-border: #3a4b44;
+  --card-bg: #171c19;
+  --card-border: #26302b;
+  --input-bg: #141917;
+  --input-border: #2c3832;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 18px -14px rgba(0, 0, 0, 0.5);
@@ -348,14 +348,14 @@ html[data-theme='dark'] {
   }
 
   .panel {
-    border-radius: 0.875rem;
+    border-radius: 0.625rem;
     border: 1px solid var(--card-border);
     background: var(--card-bg);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-xs);
   }
 
   .page-heading {
-    font-size: 1.375rem;
+    font-size: 1.25rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.25;
@@ -363,9 +363,9 @@ html[data-theme='dark'] {
   }
 
   .page-description {
-    margin-top: 0.25rem;
+    margin-top: 0.125rem;
     font-size: 0.8125rem;
-    line-height: 1.5;
+    line-height: 1.45;
     color: var(--text-secondary);
   }
 
@@ -376,40 +376,38 @@ html[data-theme='dark'] {
   }
 
   .enterprise-table th {
-    background: color-mix(in srgb, var(--surface-secondary) 70%, transparent);
+    background: color-mix(in srgb, var(--surface-secondary) 65%, transparent);
     color: var(--text-muted);
     font-size: 0.6875rem;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     text-align: left;
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--border);
   }
 
   .enterprise-table td {
-    padding: 0.875rem 1rem;
+    padding: 0.6875rem 0.875rem;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-    transition: background-color 150ms var(--ease-standard);
+    transition: background-color 140ms var(--ease-standard);
   }
 
   .enterprise-table tbody tr:hover td {
-    background: color-mix(in srgb, var(--surface-secondary) 40%, transparent);
+    background: color-mix(in srgb, var(--surface-secondary) 45%, transparent);
   }
 
   .page-enter {
-    animation: rm-fade-up 200ms var(--ease-standard);
+    animation: rm-fade-up 180ms var(--ease-standard);
   }
 
   .rm-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    border-radius: 1rem;
+    border-radius: 0.625rem;
     box-shadow: var(--shadow-xs);
     transition:
       border-color var(--duration-fast) var(--ease-standard),
-      box-shadow var(--duration-fast) var(--ease-standard),
-      transform var(--duration-fast) var(--ease-standard),
       background-color var(--duration-fast) var(--ease-standard);
   }
 

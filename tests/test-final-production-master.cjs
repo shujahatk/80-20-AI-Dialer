@@ -743,10 +743,104 @@ async function runSuite() {
       state: 'queued',
     });
 
-    const archived = await leadsService.archiveLead(created.id, orgId, actorId);
+    const archived = await leadsService.deleteLead(created.id, orgId, actorId);
     assert.ok(archived);
     assert.strictEqual(db.tables.campaign_enrollments[0].state, 'abandoned');
     // Historical call record is preserved
+    assert.strictEqual(db.tables.call_sessions.length, 1);
+
+    // Deleted lead disappears from active CRM list
+    const activeLeadsAfterSingleDelete = await leadsService.getLeads(orgId);
+    assert.strictEqual(
+      activeLeadsAfterSingleDelete.leads.some((l) => l.id === created.id),
+      false,
+      'Deleted lead must not appear in active CRM leads list'
+    );
+  });
+
+  await itAsync('Test 3.1b: Bulk lead deletion (action: delete) blocks if any selected lead has an active call, then deletes all selected leads and abandons queued enrollments', async () => {
+    const db = new InMemoryProdSupabase();
+    const leadsService = new LeadsService(db);
+
+    const leadA = await leadsService.createLead(
+      {
+        firstName: 'Bulk',
+        lastName: 'LeadOne',
+        companyName: 'Bulk Metals One',
+        phone: '+13025550201',
+        email: 'one@bulkmetals.com',
+        country: 'US',
+      },
+      orgId,
+      actorId
+    );
+    const leadB = await leadsService.createLead(
+      {
+        firstName: 'Bulk',
+        lastName: 'LeadTwo',
+        companyName: 'Bulk Metals Two',
+        phone: '+13025550202',
+        email: 'two@bulkmetals.com',
+        country: 'US',
+      },
+      orgId,
+      actorId
+    );
+
+    // Put leadB into an active call -> bulk delete must be blocked
+    await db.from('call_sessions').insert({
+      id: 'call_bulk_active_1',
+      organization_id: orgId,
+      lead_id: leadB.id,
+      status: 'in_progress',
+      direction: 'outbound',
+    });
+
+    let bulkBlockedErr = null;
+    try {
+      await leadsService.executeBulkAction(
+        { action: 'delete', leadIds: [leadA.id, leadB.id] },
+        orgId,
+        actorId
+      );
+    } catch (err) {
+      bulkBlockedErr = err;
+    }
+    assert.ok(bulkBlockedErr, 'Bulk delete must be blocked when any selected lead has an active call');
+    assert.ok(bulkBlockedErr.message.includes('while a live call is in progress'));
+
+    // Finish active call and enroll both leads in a campaign queue
+    await db.from('call_sessions').update({ status: 'completed' }).eq('id', 'call_bulk_active_1');
+    await db.from('campaign_enrollments').insert([
+      {
+        id: 'enr_bulk_a',
+        organization_id: orgId,
+        campaign_id: 'camp_bulk_test',
+        lead_id: leadA.id,
+        state: 'queued',
+      },
+      {
+        id: 'enr_bulk_b',
+        organization_id: orgId,
+        campaign_id: 'camp_bulk_test',
+        lead_id: leadB.id,
+        state: 'queued',
+      },
+    ]);
+
+    const bulkRes = await leadsService.executeBulkAction(
+      { action: 'delete', leadIds: [leadA.id, leadB.id] },
+      orgId,
+      actorId
+    );
+    assert.strictEqual(bulkRes.affected, 2);
+
+    // Both enrollments must be abandoned and both leads excluded from active CRM list
+    assert.strictEqual(db.tables.campaign_enrollments[0].state, 'abandoned');
+    assert.strictEqual(db.tables.campaign_enrollments[1].state, 'abandoned');
+    const remainingActive = await leadsService.getLeads(orgId);
+    assert.strictEqual(remainingActive.totalCount, 0);
+    // Historical call session remains preserved
     assert.strictEqual(db.tables.call_sessions.length, 1);
   });
 

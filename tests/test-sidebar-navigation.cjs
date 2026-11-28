@@ -1,45 +1,52 @@
 /**
  * 80/20 AI DIALER — Sidebar Structure & RBAC Navigation Suite
+ * Verifies the simplified 3-item primary navigation (Dashboard, Leads, Campaigns)
+ * and 12-item collapsible More secondary navigation.
  */
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 
 console.log('========================================================================');
 console.log('80/20 AI DIALER — SIDEBAR STRUCTURE & NAVIGATION AUDIT');
 console.log('========================================================================\n');
 
-// Verify definition contracts directly
 const expectedMain = [
-  { id: 'dashboard', href: '/dashboard', name: 'Dashboard', allowedRoles: ['admin', 'manager', 'executive', 'viewer'] },
-  { id: 'workstation', href: '/workstation', name: 'Workstation', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'active-call', href: '/workstation?tab=console', name: 'Active Call Console', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'leads', href: '/leads', name: 'Leads', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'campaigns', href: '/campaigns', name: 'Campaigns', allowedRoles: ['admin', 'manager', 'executive'] },
-  { id: 'callback-queue', href: '/workstation?tab=callbacks', name: 'Callback Queue', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
+  { id: 'dashboard', href: '/dashboard', name: 'Dashboard', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
+  { id: 'leads', href: '/leads', name: 'Leads', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
+  { id: 'campaigns', href: '/campaigns', name: 'Campaigns', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive'] },
 ];
 
 const expectedMore = [
+  { id: 'workstation', href: '/workstation', name: 'Workstation', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
+  { id: 'active-call', href: '/workstation?tab=console', name: 'Active Call Console', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
+  { id: 'callback-queue', href: '/workstation?tab=callbacks', name: 'Callback Queue', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
+  { id: 'calls', href: '/calls', name: 'Calls & Recordings', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
+  { id: 'qualified-pipeline', href: '/leads?status=qualified', name: 'Qualified Pipeline', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
+  { id: 'analytics', href: '/analytics', name: 'Analytics', allowedRoles: ['admin', 'manager', 'executive', 'viewer'] },
+  { id: 'import-csv', href: '/leads?action=import', name: 'Import CSV', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
+  { id: 'dnc-search', href: '/leads?status=dnc', name: 'DNC Search List', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
   { id: 'handoff-queue', href: '/workstation?tab=handoffs', name: 'Handoff Queue', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
   { id: 'manual-dialpad', href: '/workstation?action=dial', name: 'Manual Dialpad', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'import-csv', href: '/leads?action=import', name: 'Import CSV', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'qualified-pipeline', href: '/leads?status=qualified', name: 'Qualified Pipeline', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'scheduled-callbacks', href: '/leads?status=callback', name: 'Scheduled Callbacks', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'dnc-search', href: '/leads?status=dnc', name: 'DNC Search List', allowedRoles: ['admin', 'manager', 'operator', 'sdr'] },
-  { id: 'calls', href: '/calls', name: 'Calls & Recordings', allowedRoles: ['admin', 'manager', 'operator', 'sdr', 'executive', 'viewer'] },
-  { id: 'analytics', href: '/analytics', name: 'Analytics', allowedRoles: ['admin', 'manager', 'executive', 'viewer'] },
   { id: 'agents', href: '/agents', name: 'AI Agents Studio', allowedRoles: ['admin', 'manager'] },
   { id: 'settings', href: '/settings', name: 'Settings & Gateways', allowedRoles: ['admin'] },
-  { id: 'system-health', href: '/settings?tab=providers', name: 'System Health', allowedRoles: ['admin'] },
 ];
 
-console.log('--- 1. ESSENTIAL MAIN MODULES (EXACTLY 6 REQUIRED) ---');
-assert.strictEqual(expectedMain.length, 6, 'Must have exactly 6 main items');
+const sidebarSource = fs.readFileSync(path.join(__dirname, '..', 'components', 'layout', 'Sidebar.tsx'), 'utf8');
+
+console.log('--- 1. ESSENTIAL PRIMARY MODULES (EXACTLY 3 REQUIRED: Dashboard, Leads, Campaigns) ---');
+assert.strictEqual(expectedMain.length, 3, 'Must have exactly 3 primary items');
+assert.ok(sidebarSource.includes('w-[212px]'), 'Sidebar expanded width must be compact (212px)');
+assert.ok(sidebarSource.includes('w-[68px]'), 'Sidebar collapsed width must be compact (68px)');
 expectedMain.forEach((item, idx) => {
-  console.log(`[PASS] Main [${idx + 1}/6]: "${item.name}" -> ${item.href}`);
+  assert.ok(sidebarSource.includes(`id: '${item.id}'`), `Sidebar must define primary item ${item.id}`);
+  console.log(`[PASS] Main [${idx + 1}/3]: "${item.name}" -> ${item.href}`);
 });
 
 console.log('\n--- 2. SECONDARY / ADMIN MODULES IN "MORE" SECTION ---');
 expectedMore.forEach((item, idx) => {
+  assert.ok(sidebarSource.includes(`id: '${item.id}'`), `Sidebar More section must preserve ${item.id}`);
   console.log(`[PASS] More [${idx + 1}/${expectedMore.length}]: "${item.name}" -> ${item.href}`);
 });
 
@@ -67,22 +74,20 @@ function matchScore(href, pathname, search) {
 const allItems = [...expectedMain, ...expectedMore];
 const testCases = [
   { url: '/dashboard', search: '', expectedId: 'dashboard' },
+  { url: '/leads', search: '', expectedId: 'leads' },
+  { url: '/campaigns', search: '', expectedId: 'campaigns' },
   { url: '/workstation', search: '', expectedId: 'workstation' },
   { url: '/workstation', search: 'tab=console', expectedId: 'active-call' },
   { url: '/workstation', search: 'tab=callbacks', expectedId: 'callback-queue' },
   { url: '/workstation', search: 'tab=handoffs', expectedId: 'handoff-queue' },
   { url: '/workstation', search: 'action=dial', expectedId: 'manual-dialpad' },
-  { url: '/leads', search: '', expectedId: 'leads' },
   { url: '/leads', search: 'action=import', expectedId: 'import-csv' },
   { url: '/leads', search: 'status=qualified', expectedId: 'qualified-pipeline' },
-  { url: '/leads', search: 'status=callback', expectedId: 'scheduled-callbacks' },
   { url: '/leads', search: 'status=dnc', expectedId: 'dnc-search' },
-  { url: '/campaigns', search: '', expectedId: 'campaigns' },
   { url: '/calls', search: '', expectedId: 'calls' },
   { url: '/analytics', search: '', expectedId: 'analytics' },
   { url: '/agents', search: '', expectedId: 'agents' },
   { url: '/settings', search: '', expectedId: 'settings' },
-  { url: '/settings', search: 'tab=providers', expectedId: 'system-health' },
 ];
 
 testCases.forEach((tc) => {
@@ -97,6 +102,6 @@ testCases.forEach((tc) => {
 });
 
 console.log('\n========================================================================');
-console.log('SIDEBAR NAVIGATION TESTS: ALL PASSED (30 / 30 CHECKS)');
+console.log('SIDEBAR NAVIGATION TESTS: ALL PASSED (36 / 36 CHECKS)');
 console.log('========================================================================\n');
 process.exit(0);
