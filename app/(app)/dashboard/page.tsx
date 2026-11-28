@@ -196,10 +196,10 @@ export default function DashboardPage() {
                               isRunning
                                 ? 'success'
                                 : isScheduled
-                                ? 'info'
-                                : isPaused
-                                ? 'warning'
-                                : 'neutral'
+                                  ? 'info'
+                                  : isPaused
+                                    ? 'warning'
+                                    : 'neutral'
                             }
                           >
                             {camp.status}

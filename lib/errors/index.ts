@@ -62,6 +62,24 @@ export function sanitizeError(error: unknown): { message: string; code: string; 
     };
   }
 
+  if (error instanceof Error) {
+    const msg = error.message;
+    if (
+      msg.includes('live call') ||
+      msg.includes('Cannot delete') ||
+      msg.includes('not found') ||
+      msg.includes('insufficient') ||
+      msg.includes('Permission') ||
+      msg.includes('Forbidden')
+    ) {
+      return {
+        message: msg,
+        code: 'ACTION_FAILED',
+        statusCode: 400,
+      };
+    }
+  }
+
   return {
     message: 'An unexpected system error occurred.',
     code: 'INTERNAL_SERVER_ERROR',

@@ -17,7 +17,7 @@ export type AgentSimulationRow = Database['public']['Tables']['ai_agent_simulati
 export type AgentSimulationInsert = Database['public']['Tables']['ai_agent_simulations']['Insert'];
 
 export class AgentsRepository {
-  constructor(private readonly supabase: SupabaseClient<Database>) {}
+  constructor(private readonly supabase: SupabaseClient<Database>) { }
 
   private enrichAgentRow(row: any): AgentRow {
     if (!row) return row;

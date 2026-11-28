@@ -2110,6 +2110,13 @@ export interface Database {
       [_ in never]: never;
     };
     Functions: {
+      archive_lead_records: {
+        Args: {
+          p_lead_ids: string[];
+          p_org_id: string;
+        };
+        Returns: number;
+      };
       claim_first_organization: {
         Args: {
           org_name: string;

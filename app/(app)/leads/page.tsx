@@ -243,9 +243,12 @@ function LeadsMainTable({
       const res = await authenticatedFetch(`/api/leads/${leadToDelete.id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
+        const deletedId = leadToDelete.id;
+        setLeads((prev) => prev.filter((l) => l.id !== deletedId));
+        setTotalCount((prev) => Math.max(0, prev - 1));
         showToast(`Deleted "${leadToDelete.name}" from active CRM.`);
-        setSelectedIds((prev) => prev.filter((id) => id !== leadToDelete.id));
-        if (selectedLeadIdForDrawer === leadToDelete.id) {
+        setSelectedIds((prev) => prev.filter((id) => id !== deletedId));
+        if (selectedLeadIdForDrawer === deletedId) {
           setSelectedLeadIdForDrawer(null);
         }
         setLeadToDelete(null);
@@ -275,6 +278,9 @@ function LeadsMainTable({
       const data = await res.json();
       if (data.success) {
         const count = selectedIds.length;
+        const deletedSet = new Set(selectedIds);
+        setLeads((prev) => prev.filter((l) => !deletedSet.has(l.id)));
+        setTotalCount((prev) => Math.max(0, prev - count));
         showToast(`Deleted ${count} ${count === 1 ? 'lead' : 'leads'} from active CRM.`);
         setSelectedIds([]);
         setIsBulkDeleteModalOpen(false);

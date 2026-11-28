@@ -283,6 +283,20 @@ export class LeadsRepository {
   }
 
   async archive(id: string, orgId: string): Promise<LeadRow> {
+    // 1. Attempt atomic database archive RPC
+    try {
+      const { data, error } = await this.supabase.rpc('archive_lead_records', {
+        p_lead_ids: [id],
+        p_org_id: orgId,
+      });
+      if (!error && (typeof data === 'number' ? data >= 0 : true)) {
+        const lead = await this.getById(id, orgId);
+        if (lead) return lead;
+      }
+    } catch {
+      // Fall through to direct update
+    }
+
     return this.update(id, orgId, {
       deleted_at: new Date().toISOString(),
     });
@@ -342,6 +356,20 @@ export class LeadsRepository {
 
   async bulkArchive(ids: string[], orgId: string): Promise<number> {
     if (ids.length === 0) return 0;
+
+    // 1. Attempt atomic database archive RPC
+    try {
+      const { data, error } = await this.supabase.rpc('archive_lead_records', {
+        p_lead_ids: ids,
+        p_org_id: orgId,
+      });
+      if (!error && typeof data === 'number') {
+        return data;
+      }
+    } catch {
+      // Fall through to direct update
+    }
+
     const { error } = await this.supabase
       .from('leads')
       .update({

@@ -279,9 +279,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`sidebar-width fixed top-0 z-50 flex h-screen shrink-0 select-none flex-col border-r border-sidebar-border bg-sidebar text-sidebar-text transition-all duration-150 ease-out lg:sticky ${
-          collapsed ? 'w-[68px]' : 'w-[212px]'
-        } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`sidebar-width fixed top-0 z-50 flex h-screen shrink-0 select-none flex-col border-r border-sidebar-border bg-sidebar text-sidebar-text transition-all duration-150 ease-out lg:sticky ${collapsed ? 'w-[68px]' : 'w-[212px]'
+          } ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
         {/* Brand Header */}
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-sidebar-border px-3">
@@ -321,13 +320,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onClick={onCloseMobile}
                     title={collapsed ? item.name : undefined}
                     aria-current={isActive ? 'page' : undefined}
-                    className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 ${
-                      collapsed ? 'justify-center px-0' : ''
-                    } ${
-                      isActive
+                    className={`flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors duration-150 ${collapsed ? 'justify-center px-0' : ''
+                      } ${isActive
                         ? 'bg-sidebar-active text-primary font-semibold border border-primary/20'
                         : 'text-sidebar-text/80 hover:bg-sidebar-hover hover:text-sidebar-text'
-                    }`}
+                      }`}
                   >
                     <IconComponent className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                     {!collapsed && <span className="truncate">{item.name}</span>}
@@ -344,13 +341,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => setIsMoreExpanded((prev) => !prev)}
                   title={collapsed ? (isMoreExpanded ? 'Hide More modules' : 'Show More modules') : undefined}
                   aria-expanded={isMoreExpanded}
-                  className={`flex w-full h-8 items-center justify-between rounded-md px-2.5 text-[12px] font-medium transition-colors duration-150 ${
-                    collapsed ? 'justify-center px-0' : ''
-                  } ${
-                    isMoreItemActive && !isMoreExpanded
+                  className={`flex w-full h-8 items-center justify-between rounded-md px-2.5 text-[12px] font-medium transition-colors duration-150 ${collapsed ? 'justify-center px-0' : ''
+                    } ${isMoreItemActive && !isMoreExpanded
                       ? 'bg-sidebar-active text-primary font-semibold'
                       : 'text-muted-foreground hover:bg-sidebar-hover hover:text-sidebar-text'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2.5">
                     <MoreHorizontal className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
@@ -358,18 +353,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                   {!collapsed && (
                     <ChevronDown
-                      className={`h-3.5 w-3.5 transition-transform duration-150 ${
-                        isMoreExpanded ? 'rotate-180 text-sidebar-text' : 'text-muted-foreground'
-                      }`}
+                      className={`h-3.5 w-3.5 transition-transform duration-150 ${isMoreExpanded ? 'rotate-180 text-sidebar-text' : 'text-muted-foreground'
+                        }`}
                       strokeWidth={1.75}
                     />
                   )}
                 </button>
 
                 <div
-                  className={`overflow-hidden transition-all duration-150 ease-in-out ${
-                    isMoreExpanded ? 'max-h-[640px] opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
-                  }`}
+                  className={`overflow-hidden transition-all duration-150 ease-in-out ${isMoreExpanded ? 'max-h-[640px] opacity-100 mt-1' : 'max-h-0 opacity-0 pointer-events-none'
+                    }`}
                 >
                   <div className="flex flex-col gap-0.5">
                     {visibleMoreItems.map((item) => {
@@ -382,13 +375,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           onClick={onCloseMobile}
                           title={collapsed ? item.name : undefined}
                           aria-current={isActive ? 'page' : undefined}
-                          className={`flex h-7.5 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors duration-150 ${
-                            collapsed ? 'justify-center px-0' : ''
-                          } ${
-                            isActive
+                          className={`flex h-7.5 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium transition-colors duration-150 ${collapsed ? 'justify-center px-0' : ''
+                            } ${isActive
                               ? 'bg-sidebar-active text-primary font-semibold border border-primary/20'
                               : 'text-sidebar-text/70 hover:bg-sidebar-hover hover:text-sidebar-text'
-                          }`}
+                            }`}
                         >
                           <IconComponent className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                           {!collapsed && <span className="truncate">{item.name}</span>}
@@ -410,9 +401,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               type="button"
               onClick={() => setShowUserMenu(!showUserMenu)}
-              className={`flex w-full items-center rounded-md text-sidebar-text transition-colors hover:bg-sidebar-hover ${
-                collapsed ? 'justify-center p-1.5' : 'justify-between px-2 py-1.5'
-              }`}
+              className={`flex w-full items-center rounded-md text-sidebar-text transition-colors hover:bg-sidebar-hover ${collapsed ? 'justify-center p-1.5' : 'justify-between px-2 py-1.5'
+                }`}
             >
               <div className="flex min-w-0 items-center gap-2">
                 <div className="relative shrink-0">
@@ -420,11 +410,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {currentUser.name.charAt(0)}
                   </div>
                   <span
-                    className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-sidebar ${
-                      currentUser.status === 'in-call'
-                        ? 'bg-amber-400'
-                        : 'bg-[#7EAEA0]'
-                    }`}
+                    className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-sidebar ${currentUser.status === 'in-call'
+                      ? 'bg-amber-400'
+                      : 'bg-[#7EAEA0]'
+                      }`}
                   />
                 </div>
                 {!collapsed && (
@@ -438,9 +427,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {showUserMenu && (
               <div
-                className={`absolute bottom-full z-50 mb-1.5 rounded-lg border border-border bg-surface-elevated p-1.5 text-[12.5px] text-on-surface shadow-lg ${
-                  collapsed ? 'left-14 w-52' : 'left-0 right-0'
-                }`}
+                className={`absolute bottom-full z-50 mb-1.5 rounded-lg border border-border bg-surface-elevated p-1.5 text-[12.5px] text-on-surface shadow-lg ${collapsed ? 'left-14 w-52' : 'left-0 right-0'
+                  }`}
               >
                 <div className="border-b border-border/60 px-2.5 py-1.5">
                   <div className="truncate font-medium text-on-surface">{currentUser.name}</div>
