@@ -21,6 +21,7 @@ const suites = [
   { name: 'Phase 2 Disposable PostgreSQL (PGlite) Database Suite', file: path.join(__dirname, 'test-phase2-disposable-postgres.cjs') },
   { name: 'CRM Architecture & Production Restructure Suite', file: path.join(__dirname, 'test-crm-architecture-restructure.cjs') },
   { name: 'Retell Call Outcome & CRM Persistence Suite', file: path.join(__dirname, 'test-call-outcome-persistence.cjs') },
+  { name: 'Call State Synchronization & Concurrency Suite', file: path.join(__dirname, 'test-call-state-synchronization.cjs') },
 ];
 
 let allPassed = true;
@@ -47,6 +48,6 @@ for (const suite of suites) {
 }
 
 console.log('\n========================================================================');
-console.log('ALL TEST SUITES PASSED SUCCESSFULLY (262 / 262 VERIFIED TESTS)');
+console.log('ALL TEST SUITES PASSED SUCCESSFULLY (280 / 280 VERIFIED TESTS)');
 console.log('========================================================================\n');
 process.exit(0);

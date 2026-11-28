@@ -100,6 +100,9 @@ function WorkstationCockpit() {
     micVolume,
     remoteVolume,
     errorMessage,
+    conflictCallId,
+    isReconciling,
+    reconcileStuckCall,
     startCall,
     endCall,
     toggleMute,
@@ -265,11 +268,30 @@ function WorkstationCockpit() {
       />
 
       {errorMessage && (
-        <div className="mx-6 mt-4 p-3 bg-error-container text-on-error-container rounded-lg border border-error/20 flex items-center justify-between text-xs">
-          <span>{errorMessage}</span>
-          <button onClick={resetCallSession} className="underline font-semibold ml-4">
-            Dismiss
-          </button>
+        <div className="mx-6 mt-4 p-3.5 bg-error-container text-on-error-container rounded-lg border border-error/20 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{errorMessage}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {conflictCallId && (
+              <button
+                type="button"
+                disabled={isReconciling}
+                onClick={async () => {
+                  const res = await reconcileStuckCall();
+                  if (res?.success) {
+                    resetCallSession();
+                  }
+                }}
+                className="px-3 py-1 bg-primary text-primary-foreground font-semibold rounded hover:brightness-110 transition-all text-xs flex items-center gap-1.5 shadow-sm"
+              >
+                {isReconciling ? 'Checking Retell...' : 'Reconcile Stuck Call'}
+              </button>
+            )}
+            <button onClick={resetCallSession} className="underline font-semibold ml-2 text-on-error-container hover:text-on-surface transition-colors">
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 

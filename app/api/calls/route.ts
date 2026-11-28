@@ -77,9 +77,38 @@ export async function POST(request: NextRequest) {
 
     console.error(`[API /api/calls POST] [${correlationId}] Call dispatch error:`, err);
 
+    const isActiveCallConflict = message.includes('already has an active call in progress') || message.includes('uq_call_sessions_active_lead');
+    const isReconciliationPending = message.includes('temporarily unreachable') || message.includes('RECONCILIATION_PENDING');
+
+    const match = message.match(/Call ID:\s*([0-9a-f-]{36})/i);
+    const activeCallId = match ? match[1] : undefined;
+
+    const errorCode = isActiveCallConflict
+      ? 'ACTIVE_CALL_EXISTS'
+      : isReconciliationPending
+      ? 'RECONCILIATION_PENDING'
+      : message.includes('Do Not Call')
+      ? 'DNC_RESTRICTED'
+      : message.includes('archived')
+      ? 'LEAD_ARCHIVED'
+      : message.includes('invalid')
+      ? 'INVALID_PHONE'
+      : 'DISPATCH_FAILED';
+
+    const statusCode = (isActiveCallConflict || message.includes('Do Not Call') || message.includes('archived') || message.includes('invalid')) ? 400 : (isReconciliationPending ? 503 : 500);
+
     return NextResponse.json(
-      { success: false, error: { message, correlationId } },
-      { status: message.includes('Do Not Call') || message.includes('archived') || message.includes('invalid') ? 400 : 500 }
+      {
+        success: false,
+        error: {
+          code: errorCode,
+          message,
+          activeCallId,
+          canReconcile: Boolean(isActiveCallConflict && activeCallId),
+          correlationId,
+        },
+      },
+      { status: statusCode }
     );
   }
 }

@@ -23,6 +23,8 @@ export function useTelephony() {
   const [micVolume, setMicVolume] = useState<number>(0);
   const [remoteVolume, setRemoteVolume] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [conflictCallId, setConflictCallId] = useState<string | null>(null);
+  const [isReconciling, setIsReconciling] = useState<boolean>(false);
   const [isDeviceReady, setIsDeviceReady] = useState<boolean>(false);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -115,6 +117,14 @@ export function useTelephony() {
       if (!res.ok || !json.success || !json.data) {
         const corrInfo = json.error?.correlationId ? ` [Correlation: ${json.error.correlationId}]` : '';
         const errMsg = (json.error?.message || (typeof json.error === 'string' ? json.error : null) || 'Failed to initiate outbound call') + corrInfo;
+
+        if (json.error?.activeCallId) {
+          setConflictCallId(json.error.activeCallId);
+        } else {
+          const match = errMsg.match(/Call ID:\s*([0-9a-f-]{36})/i);
+          if (match) setConflictCallId(match[1]);
+        }
+
         throw new Error(errMsg);
       }
 
@@ -181,6 +191,44 @@ export function useTelephony() {
     setDurationSeconds(0);
     setIsMuted(false);
     setErrorMessage(null);
+    setConflictCallId(null);
+    setIsReconciling(false);
+  };
+
+  /**
+   * Reconciles a stuck or active call directly with Retell AI provider
+   */
+  const reconcileStuckCall = async (targetCallId?: string) => {
+    const idToReconcile = targetCallId || conflictCallId;
+    if (!idToReconcile) return { success: false, error: 'No call ID to reconcile' };
+
+    setIsReconciling(true);
+    setErrorMessage('Reconciling call state with Retell AI provider...');
+
+    try {
+      const res = await authenticatedFetch(`/api/calls/${idToReconcile}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reconcile' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConflictCallId(null);
+        setCallState('idle');
+        setErrorMessage(null);
+        return { success: true, message: data.data?.message || 'Call successfully reconciled' };
+      } else {
+        const err = data.error?.message || 'Failed to reconcile call with Retell';
+        setErrorMessage(err);
+        return { success: false, error: err };
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Reconciliation failed';
+      setErrorMessage(msg);
+      return { success: false, error: msg };
+    } finally {
+      setIsReconciling(false);
+    }
   };
 
   /**
@@ -212,12 +260,15 @@ export function useTelephony() {
     micVolume,
     remoteVolume,
     errorMessage,
+    conflictCallId,
+    isReconciling,
     isDeviceReady,
     startCall,
     endCall,
     toggleMute,
     sendDtmf,
     resetCallSession,
+    reconcileStuckCall,
     submitDisposition,
   };
 }

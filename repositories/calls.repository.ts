@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, WebhookStatusDb, CallStatusDb, Json } from '@/lib/supabase/types';
+import { mapDisconnectionToCallStatus } from '@/services/retell/retell-events';
 
 export type CallRow = Database['public']['Tables']['call_sessions']['Row'];
 export type CallInsert = Database['public']['Tables']['call_sessions']['Insert'];
@@ -154,9 +155,27 @@ export class CallsRepository {
       .eq('lead_id', leadId)
       .eq('organization_id', orgId)
       .in('status', ['queued', 'ringing', 'in_progress'])
+      .is('ended_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
+
     if (error) throw error;
-    return data ? this.enrichCallRow(data) : null;
+    if (!data) return null;
+
+    // Self-healing check: If the row has disconnection_reason or ended_at, it's not active
+    if (data.disconnection_reason || data.ended_at) {
+      const terminalStatus = data.disconnection_reason
+        ? mapDisconnectionToCallStatus(data.disconnection_reason)
+        : 'completed';
+      void this.update(data.id, orgId, {
+        status: terminalStatus,
+        ended_at: data.ended_at || new Date().toISOString(),
+      }).catch(err => console.warn('[getActiveCallForLead] Self-healing error:', err));
+      return null;
+    }
+
+    return this.enrichCallRow(data);
   }
 
   /**

@@ -51,7 +51,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await authenticateRequest(request, { allowedRoles: ['admin', 'manager'] });
+    const auth = await authenticateRequest(request, { allowedRoles: ['admin', 'manager', 'operator'] });
     if (!isAuthContext(auth)) return auth;
 
     const { id } = await params;
@@ -62,16 +62,7 @@ export async function POST(
 
     if (action === 'reconcile') {
       const callsService = new CallsService(supabase);
-      const call = await callsService.getCallById(id, auth.organizationId);
-      if (!call || !call.retell_call_id) {
-        return NextResponse.json(
-          { success: false, error: { message: 'Call does not have an associated Retell call ID' } },
-          { status: 400 }
-        );
-      }
-
-      const webhookService = new RetellWebhookService(supabase);
-      const result = await webhookService.reconcileCallAnalysis(call.retell_call_id, auth.organizationId);
+      const result = await callsService.reconcileCall(id, auth.organizationId);
       return NextResponse.json({ success: true, data: result });
     }
 

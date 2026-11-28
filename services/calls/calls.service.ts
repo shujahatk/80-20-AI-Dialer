@@ -5,6 +5,10 @@ import { AgentsRepository } from '@/repositories/agents.repository';
 import { CampaignsService } from '@/services/campaigns/campaigns.service';
 import { twilioProvider } from '@/services/telephony/TwilioTelephonyProvider';
 import { retellCallService } from '@/services/retell/RetellCallService';
+import { RetellClient } from '@/services/retell/RetellClient';
+import { normalizeRetellCallStatus, mapDisconnectionToCallStatus } from '@/services/retell/retell-events';
+import { RetellWebhookService } from '@/services/retell/RetellWebhookService';
+import type { RetellCallResponse, RetellMetadata } from '@/services/retell/types';
 import {
   assertValidCallTransition,
   normalizeCallOutcome,
@@ -85,10 +89,27 @@ export class CallsService {
       throw new Error(`Lead '${lead.full_name}' has an invalid callable phone number.`);
     }
 
-    // Duplicate active call prevention
-    const activeCall = await this.repo.getActiveCallForLead(lead.id, organizationId);
+    // Duplicate active call prevention with automated provider reconciliation
+    let activeCall = await this.repo.getActiveCallForLead(lead.id, organizationId);
     if (activeCall) {
-      throw new Error(`Lead '${lead.full_name}' already has an active call in progress (Call ID: ${activeCall.id}, Status: ${activeCall.status}).`);
+      // If the candidate call has a retell_call_id or was created > 15s ago,
+      // verify the actual provider state before blocking the operator.
+      const ageMs = Date.now() - new Date(activeCall.created_at).getTime();
+      if (activeCall.retell_call_id || ageMs > 15000) {
+        try {
+          const rec = await this.reconcileCall(activeCall.id, organizationId);
+          if (rec.reconciled && rec.isFinal) {
+            // Call session has ended or failed in Retell - lock is released! Re-check active call
+            activeCall = await this.repo.getActiveCallForLead(lead.id, organizationId);
+          }
+        } catch (recErr) {
+          console.warn('[assertLeadCallable] Auto-reconciliation check error:', recErr);
+        }
+      }
+
+      if (activeCall) {
+        throw new Error(`Lead '${lead.full_name}' already has an active call in progress (Call ID: ${activeCall.id}, Status: ${activeCall.status}).`);
+      }
     }
 
     return { lead, phoneNorm };
@@ -655,5 +676,175 @@ export class CallsService {
 
   async getCallTranscripts(callId: string) {
     return this.repo.getTranscriptsByCallId(callId);
+  }
+
+  /**
+   * Reconciles a call session with Retell AI and local terminal state.
+   * Self-heals stuck sessions (ended_at populated, not_connected, dial_no_answer, 404, or orphaned dispatch).
+   */
+  async reconcileCall(callId: string, organizationId?: string): Promise<{
+    reconciled: boolean;
+    status: string;
+    isFinal: boolean;
+    message: string;
+  }> {
+    const orgId = organizationId ?? this.defaultOrgId;
+    const callRecord = await this.repo.getById(callId, orgId);
+    if (!callRecord) {
+      return { reconciled: false, status: 'unknown', isFinal: true, message: `No call record found for ID ${callId}` };
+    }
+
+    // 1. If call already has ended_at set or terminal status
+    if (callRecord.ended_at && callRecord.status !== 'queued' && callRecord.status !== 'ringing' && callRecord.status !== 'in_progress') {
+      return {
+        reconciled: true,
+        status: callRecord.status,
+        isFinal: true,
+        message: `Call is already in terminal state '${callRecord.status}'`,
+      };
+    }
+
+    // 2. If call has disconnection_reason or ended_at but non-terminal status, self-heal immediately
+    if (callRecord.disconnection_reason || callRecord.ended_at) {
+      const terminalStatus = callRecord.disconnection_reason
+        ? mapDisconnectionToCallStatus(callRecord.disconnection_reason)
+        : 'completed';
+
+      await this.repo.update(callRecord.id, orgId, {
+        status: terminalStatus,
+        ended_at: callRecord.ended_at || new Date().toISOString(),
+      });
+
+      return {
+        reconciled: true,
+        status: terminalStatus,
+        isFinal: true,
+        message: `Synchronized local call status to terminal state '${terminalStatus}'`,
+      };
+    }
+
+    // 3. If Retell call ID is present, query Retell API
+    if (callRecord.retell_call_id) {
+      const client = new RetellClient();
+      let retellCall: RetellCallResponse;
+
+      try {
+        retellCall = await client.getCall(callRecord.retell_call_id);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : 'Retell request failed';
+        if (errMsg.includes('404') || errMsg.includes('not found') || errMsg.includes('Not Found')) {
+          await this.repo.update(callRecord.id, orgId, {
+            status: 'failed',
+            failure_reason: 'Retell call not found (404)',
+            ended_at: new Date().toISOString(),
+          });
+          return {
+            reconciled: true,
+            status: 'failed',
+            isFinal: true,
+            message: 'Call was not found on Retell provider (404). Released active lock.',
+          };
+        }
+        return {
+          reconciled: false,
+          status: callRecord.status,
+          isFinal: false,
+          message: `Retell API temporarily unreachable: ${errMsg}`,
+        };
+      }
+
+      if (retellCall) {
+        const retellStatus = retellCall.call_status;
+        const retellReason = retellCall.disconnection_reason;
+
+        if (retellStatus === 'ongoing') {
+          await this.repo.update(callRecord.id, orgId, {
+            status: 'in_progress',
+            started_at: retellCall.start_timestamp ? new Date(retellCall.start_timestamp).toISOString() : undefined,
+          });
+          return {
+            reconciled: true,
+            status: 'in_progress',
+            isFinal: false,
+            message: 'Call is verified active and ongoing in Retell.',
+          };
+        }
+
+        if (retellStatus === 'ended' || retellStatus === 'not_connected' || retellStatus === 'error') {
+          const terminalStatus = normalizeRetellCallStatus(retellStatus, retellReason);
+          const durationSec = retellCall.duration_ms ? Math.round(retellCall.duration_ms / 1000) : 0;
+          const endedAt = retellCall.end_timestamp ? new Date(retellCall.end_timestamp).toISOString() : new Date().toISOString();
+
+          await this.repo.update(callRecord.id, orgId, {
+            status: terminalStatus,
+            ended_at: endedAt,
+            duration_seconds: durationSec,
+            disconnection_reason: retellReason || null,
+          });
+
+          // Check if webhook analysis or outcome recording needed
+          if (retellCall.call_analysis) {
+            try {
+              const webhookService = new RetellWebhookService(this.supabase);
+              await webhookService.processCallAnalysis({
+                callId: callRecord.id,
+                organizationId: orgId,
+                call: retellCall,
+                metadata: (retellCall.metadata || {}) as Partial<RetellMetadata>,
+                rmCall: callRecord,
+              });
+            } catch (procErr) {
+              console.warn('[reconcileCall] processCallAnalysis warning:', procErr);
+            }
+          } else {
+            const existingOutcome = await this.repo.getOutcomeByCallSessionId(callRecord.id);
+            if (!existingOutcome && retellReason) {
+              let disposition = 'NO_ANSWER';
+              if (retellReason.includes('busy')) disposition = 'BUSY';
+              else if (retellReason.includes('fail') || retellStatus === 'error') disposition = 'FAILED';
+              else if (retellReason.includes('voicemail')) disposition = 'VOICEMAIL';
+              else if (terminalStatus === 'completed') disposition = 'COMPLETED';
+
+              await this.repo.recordOutcome({
+                call_session_id: callRecord.id,
+                organization_id: orgId,
+                disposition,
+                notes: `Call ended with: ${retellReason}`,
+              });
+            }
+          }
+
+          return {
+            reconciled: true,
+            status: terminalStatus,
+            isFinal: true,
+            message: `Synchronized call with Retell. Final status: ${terminalStatus}`,
+          };
+        }
+      }
+    }
+
+    // 4. If no retell_call_id and created > 30 seconds ago, it is an orphaned dispatch attempt
+    const ageMs = Date.now() - new Date(callRecord.created_at).getTime();
+    if (!callRecord.retell_call_id && ageMs > 30000) {
+      await this.repo.update(callRecord.id, orgId, {
+        status: 'failed',
+        failure_reason: 'Dispatch timed out before provider call creation',
+        ended_at: new Date().toISOString(),
+      });
+      return {
+        reconciled: true,
+        status: 'failed',
+        isFinal: true,
+        message: 'Orphaned dispatch session timed out before provider creation. Released active lock.',
+      };
+    }
+
+    return {
+      reconciled: false,
+      status: callRecord.status,
+      isFinal: false,
+      message: 'Call is in dispatch window or awaiting provider correlation.',
+    };
   }
 }

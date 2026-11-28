@@ -163,6 +163,16 @@ export class CampaignRetellDispatcher {
         continue; // Try next candidate
       }
 
+      // 5b. Active Call Check — Verify lead has no active call across CRM or other campaigns
+      const activeCall = await this.callsRepo.getActiveCallForLead(candidate.leadId, organizationId);
+      if (activeCall) {
+        const postponeTime = new Date(Date.now() + 60000 * 5).toISOString(); // +5m
+        await this.campaignsRepo.releaseClaim(candidate.campaignLeadId);
+        await this.campaignsRepo.updateAttempt(candidate.campaignLeadId, 'already_in_call', postponeTime);
+        candidate = null;
+        continue;
+      }
+
       // 6. Recipient Local Timezone Check
       if (candidate.timezone && candidate.timezone !== campaign.timezone) {
         const leadWindowCheck = isWithinCallingWindow({
@@ -291,10 +301,11 @@ export class CampaignRetellDispatcher {
     }
 
     // 10. LIVE / CANARY-APPROVED EXECUTION PATH
+    let rmCall: CallRow | null = null;
     try {
       // Step A: Create RM Call Record with verified human approval evidence:
       const now = new Date().toISOString();
-      const rmCall = await this.callsRepo.create({
+      rmCall = await this.callsRepo.create({
         organization_id: organizationId,
         campaign_id: campaign.id,
         lead_id: candidate.leadId,
@@ -373,6 +384,15 @@ export class CampaignRetellDispatcher {
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Retell dispatch execution failed';
       console.error('[RetellCampaignDispatcher] Live dispatch error:', errorMsg);
+
+      // Self-heal RM call record if created so it never remains stuck in registered/queued
+      if (rmCall && (rmCall as any).id) {
+        await this.callsRepo.update((rmCall as any).id, organizationId, {
+          status: 'failed',
+          disconnection_reason: errorMsg,
+          ended_at: new Date().toISOString(),
+        }).catch(updateErr => console.warn('[RetellCampaignDispatcher] Failed to mark rmCall failed:', updateErr));
+      }
 
       // Release claim so retry worker can recover
       await this.campaignsRepo.releaseClaim(candidate.campaignLeadId);

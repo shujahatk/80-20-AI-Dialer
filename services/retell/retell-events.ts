@@ -33,12 +33,16 @@ export function normalizeRetellCallStatus(
       return 'queued';
     case 'ongoing':
       return 'in_progress';
+    case 'not_connected':
+      if (disconnectionReason) return mapDisconnectionToCallStatus(disconnectionReason);
+      return 'failed';
     case 'ended':
       if (!disconnectionReason) return 'completed';
       return mapDisconnectionToCallStatus(disconnectionReason);
     case 'error':
       return 'failed';
     default:
+      if (disconnectionReason) return mapDisconnectionToCallStatus(disconnectionReason);
       return 'queued';
   }
 }

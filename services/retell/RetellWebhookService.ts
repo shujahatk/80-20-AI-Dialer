@@ -7,7 +7,7 @@
 import { getServerEnv } from '@/lib/env';
 import { RetellClient } from './RetellClient';
 import { RetellMapper } from './retell-mapper';
-import { retellEventToNormalizedType } from './retell-events';
+import { retellEventToNormalizedType, normalizeRetellCallStatus, mapDisconnectionToCallStatus } from './retell-events';
 import type { RetellWebhookEvent, RetellMetadata, RetellCallResponse } from './types';
 import { CallsRepository } from '@/repositories/calls.repository';
 import { LeadsRepository } from '@/repositories/leads.repository';
@@ -201,8 +201,15 @@ export class RetellWebhookService {
             const mappedFields = RetellMapper.mapRetellCallToRMCallFields(call);
             const durationSec = call.duration_ms ? Math.round(call.duration_ms / 1000) : (mappedFields.duration_seconds ?? null);
 
+            let terminalStatus = mappedFields.status;
+            if (terminalStatus === 'queued' || terminalStatus === 'in_progress') {
+              terminalStatus = call.disconnection_reason
+                ? mapDisconnectionToCallStatus(call.disconnection_reason)
+                : 'completed';
+            }
+
             await this.callsRepo.update(callId, organizationId, {
-              status: mappedFields.status,
+              status: terminalStatus,
               ended_at: call.end_timestamp ? new Date(call.end_timestamp).toISOString() : new Date().toISOString(),
               duration_seconds: durationSec,
               disconnection_reason: call.disconnection_reason || null,
@@ -677,6 +684,14 @@ export class RetellWebhookService {
       retellCall = await client.getCall(retellCallId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Retell API call failed';
+      if (msg.includes('404') || msg.includes('not found') || msg.includes('Not Found')) {
+        await this.callsRepo.update(callRecord.id, organizationId, {
+          status: 'failed',
+          failure_reason: 'Call not found on Retell provider (404)',
+          ended_at: new Date().toISOString(),
+        });
+        return { reconciled: true, outcome: 'FAILED', message: 'Call was not found on Retell provider (404). Released active lock.' };
+      }
       return { reconciled: false, message: `Failed to fetch call from Retell: ${msg}` };
     }
 
@@ -685,6 +700,44 @@ export class RetellWebhookService {
     }
 
     if (!retellCall.call_analysis) {
+      const status = normalizeRetellCallStatus(retellCall.call_status, retellCall.disconnection_reason);
+      const isTerminal = status !== 'queued' && status !== 'in_progress';
+
+      if (isTerminal) {
+        const endedAt = retellCall.end_timestamp ? new Date(retellCall.end_timestamp).toISOString() : new Date().toISOString();
+        const durationSec = retellCall.duration_ms ? Math.round(retellCall.duration_ms / 1000) : 0;
+
+        await this.callsRepo.update(callRecord.id, organizationId, {
+          status,
+          ended_at: endedAt,
+          duration_seconds: durationSec,
+          disconnection_reason: retellCall.disconnection_reason || null,
+        });
+
+        const reason = (retellCall.disconnection_reason || '').toLowerCase();
+        let disposition = 'NO_ANSWER';
+        if (reason.includes('busy')) disposition = 'BUSY';
+        else if (reason.includes('fail') || retellCall.call_status === 'error') disposition = 'FAILED';
+        else if (reason.includes('voicemail')) disposition = 'VOICEMAIL';
+        else if (status === 'completed') disposition = 'COMPLETED';
+
+        const existingOutcome = await this.callsRepo.getOutcomeByCallSessionId(callRecord.id);
+        if (!existingOutcome) {
+          await this.callsRepo.recordOutcome({
+            call_session_id: callRecord.id,
+            organization_id: organizationId,
+            disposition,
+            notes: retellCall.disconnection_reason ? `Call ended with: ${retellCall.disconnection_reason}` : 'Call finished',
+          });
+        }
+
+        return {
+          reconciled: true,
+          outcome: disposition,
+          message: `Synchronized non-connected/ended call. Status: ${status}`,
+        };
+      }
+
       return { reconciled: false, message: 'Call has not completed analysis on Retell provider yet' };
     }
 

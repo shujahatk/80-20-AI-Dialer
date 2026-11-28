@@ -28,7 +28,7 @@ export interface RetellCreatePhoneCallRequest {
   metadata?: RetellMetadata | Record<string, unknown>;
 }
 
-export type RetellCallStatus = 'registered' | 'ongoing' | 'ended' | 'error';
+export type RetellCallStatus = 'registered' | 'ongoing' | 'ended' | 'error' | 'not_connected' | string;
 
 export type RetellDisconnectionReason =
   | 'user_hangup'
